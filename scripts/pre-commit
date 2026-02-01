@@ -6,6 +6,21 @@ set -e
 
 echo "🔍 Running pre-commit checks..."
 
+# Get list of staged files
+STAGED_FILES=$(git diff --cached --name-only)
+
+# Check if any Python or JavaScript/TypeScript files are staged
+CODE_FILES=$(echo "$STAGED_FILES" | grep -E '\.(py|js|jsx|ts|tsx)$' || true)
+
+if [ -z "$CODE_FILES" ]; then
+    echo "📝 No code changes detected (only docs/scripts/config)"
+    echo "✅ Skipping tests - pre-commit passed!"
+    exit 0
+fi
+
+echo "📦 Code changes detected:"
+echo "$CODE_FILES" | sed 's/^/   /'
+
 # Navigate to backend
 cd "$(dirname "$0")/../backend" 2>/dev/null || cd backend
 

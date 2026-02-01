@@ -135,14 +135,23 @@ npm install
 ### 5. Run the application
 
 ```bash
+# Start all services (Ollama, backend, frontend)
+make start
+
+# Check status
+make status
+
+# Stop all services
+make stop
+```
+
+Or run manually in separate terminals:
+```bash
 # Terminal 1: Backend
-cd backend
-source venv/bin/activate
-uvicorn main:app --reload --port 8000
+cd backend && source venv/bin/activate && uvicorn main:app --reload --port 8000
 
 # Terminal 2: Frontend
-cd frontend
-npm run dev
+cd frontend && npm run dev
 ```
 
 Open http://localhost:5173
@@ -178,12 +187,16 @@ make test-cov    # Run with coverage
 ### Project commands (Makefile)
 
 ```bash
+make start        # Start all services (background)
+make stop         # Stop all services
+make status       # Check service status
 make install      # Install all dependencies
 make test         # Run backend tests
 make test-cov     # Run tests with coverage
-make backend      # Start backend server
-make frontend     # Start frontend server
+make backend      # Start backend server (foreground)
+make frontend     # Start frontend server (foreground)
 make setup-hooks  # Install git pre-commit hook
+make clean        # Clean cache files
 ```
 
 ## API Rate Limits

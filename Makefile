@@ -1,17 +1,20 @@
 # FinAgent - Development Commands
 # Usage: make <command>
 
-.PHONY: help install test test-cov backend frontend dev setup-hooks clean
+.PHONY: help install test test-cov backend frontend start stop stop-all status setup-hooks clean
 
 help:
 	@echo "FinAgent Development Commands"
 	@echo ""
+	@echo "  make start        - Start all services (background)"
+	@echo "  make stop         - Stop all services (keeps Ollama)"
+	@echo "  make stop-all     - Stop all services including Ollama"
+	@echo "  make status       - Check status of all services"
 	@echo "  make install      - Install all dependencies"
 	@echo "  make test         - Run backend tests"
 	@echo "  make test-cov     - Run tests with coverage"
-	@echo "  make backend      - Start backend server"
-	@echo "  make frontend     - Start frontend dev server"
-	@echo "  make dev          - Start both servers"
+	@echo "  make backend      - Start backend server (foreground)"
+	@echo "  make frontend     - Start frontend dev server (foreground)"
 	@echo "  make setup-hooks  - Install git pre-commit hook"
 	@echo "  make clean        - Clean cache files"
 
@@ -44,10 +47,21 @@ frontend:
 	@echo "🚀 Starting frontend server..."
 	cd frontend && npm run dev
 
-# Start both servers (requires terminal multiplexer or run in separate terminals)
-dev:
-	@echo "🚀 Starting development servers..."
-	@echo "Run 'make backend' and 'make frontend' in separate terminals"
+# Start all services in background
+start:
+	@./scripts/start.sh
+
+# Stop all services
+stop:
+	@./scripts/stop.sh
+
+# Stop all services including Ollama
+stop-all:
+	@./scripts/stop.sh --all
+
+# Check status of all services
+status:
+	@./scripts/status.sh
 
 # Install git hooks
 setup-hooks:
