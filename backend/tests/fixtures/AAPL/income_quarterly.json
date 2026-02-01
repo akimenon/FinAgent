@@ -1,0 +1,68 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "income_quarterly",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 90,
+  "data": [
+    {
+      "date": "2025-12-28",
+      "symbol": "AAPL",
+      "period": "Q1",
+      "fiscalYear": 2025,
+      "revenue": 124300000000,
+      "grossProfit": 58100000000,
+      "operatingIncome": 41200000000,
+      "netIncome": 36300000000,
+      "eps": 2.40,
+      "epsdiluted": 2.38
+    },
+    {
+      "date": "2025-09-28",
+      "symbol": "AAPL",
+      "period": "Q4",
+      "fiscalYear": 2024,
+      "revenue": 94900000000,
+      "grossProfit": 43900000000,
+      "operatingIncome": 29600000000,
+      "netIncome": 14700000000,
+      "eps": 0.97,
+      "epsdiluted": 0.96
+    },
+    {
+      "date": "2025-06-28",
+      "symbol": "AAPL",
+      "period": "Q3",
+      "fiscalYear": 2024,
+      "revenue": 85800000000,
+      "grossProfit": 39700000000,
+      "operatingIncome": 25300000000,
+      "netIncome": 21400000000,
+      "eps": 1.40,
+      "epsdiluted": 1.39
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "AAPL",
+      "period": "Q2",
+      "fiscalYear": 2024,
+      "revenue": 90800000000,
+      "grossProfit": 42300000000,
+      "operatingIncome": 27900000000,
+      "netIncome": 23600000000,
+      "eps": 1.53,
+      "epsdiluted": 1.52
+    },
+    {
+      "date": "2024-12-30",
+      "symbol": "AAPL",
+      "period": "Q1",
+      "fiscalYear": 2024,
+      "revenue": 119600000000,
+      "grossProfit": 54900000000,
+      "operatingIncome": 40400000000,
+      "netIncome": 33900000000,
+      "eps": 2.18,
+      "epsdiluted": 2.17
+    }
+  ]
+}

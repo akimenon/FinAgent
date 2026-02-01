@@ -24,6 +24,7 @@ import {
   ArrowDownRight,
   MessageSquare,
   Send,
+  Calendar,
 } from 'lucide-react'
 import { financialsApi, agentApi } from '../services/api'
 import QuarterlyResultsTable from '../components/tables/QuarterlyResultsTable'
@@ -268,7 +269,7 @@ export default function CompanyAnalysis() {
     )
   }
 
-  const { profile, price, latestQuarter, balanceSheet, cashFlow, earnings, revenuePillars } = overview
+  const { profile, price, latestQuarter, balanceSheet, cashFlow, earnings, revenuePillars, nextEarnings } = overview
 
   return (
     <div className="space-y-6">
@@ -312,7 +313,7 @@ export default function CompanyAnalysis() {
       </div>
 
       {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
         <div className="bg-slate-800/50 rounded-lg px-4 py-2">
           <span className="text-slate-400">Market Cap</span>
           <span className="float-right font-medium">{formatNumber(price.marketCap, 2)}</span>
@@ -329,6 +330,18 @@ export default function CompanyAnalysis() {
           <span className="text-slate-400">Employees</span>
           <span className="float-right font-medium">{parseInt(profile.employees || 0).toLocaleString()}</span>
         </div>
+        {nextEarnings && (
+          <div className="bg-gradient-to-r from-purple-500/20 to-purple-500/5 border border-purple-500/30 rounded-lg px-4 py-2">
+            <span className="text-purple-400 flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> Next Earnings
+            </span>
+            <span className="float-right font-medium">
+              {nextEarnings.daysUntil === 0 ? 'Today' :
+               nextEarnings.daysUntil === 1 ? 'Tomorrow' :
+               `${nextEarnings.daysUntil} days`}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Latest Quarter Section */}

@@ -1,10 +1,11 @@
 """
 RAG Chat Agent - Answers any question using comprehensive financial data.
 Fetches ALL available data and passes it to Qwen for accurate answers.
+Uses file-based cache to minimize API calls.
 """
 import asyncio
 from typing import Dict, Any, Optional
-from services.fmp_service import fmp_service
+from services.fmp_cache import fmp_cache
 from services.llm_service import llm_service
 
 
@@ -43,33 +44,28 @@ When answering:
 - Keep answers concise"""
 
     def __init__(self):
-        self.fmp = fmp_service
+        self.cache = fmp_cache
         self.llm = llm_service
-        self._data_cache: Dict[str, Dict] = {}
 
     async def fetch_all_data(self, symbol: str) -> Dict[str, Any]:
         """
         Fetch ALL available financial data for comprehensive Q&A.
-        This is the RAG "retrieval" step.
+        Uses file-based cache - only calls API for missing/stale data.
         """
         symbol = symbol.upper()
 
-        # Check cache first
-        if symbol in self._data_cache:
-            return self._data_cache[symbol]
-
-        # Fetch all data in parallel
+        # Fetch all data in parallel (cache handles freshness)
         tasks = {
-            "profile": self.fmp.get_company_profile(symbol),
-            "income_quarterly": self.fmp.get_income_statement(symbol, period="quarter", limit=5),
-            "income_annual": self.fmp.get_income_statement(symbol, period="annual", limit=3),
-            "balance_sheet": self.fmp.get_balance_sheet(symbol, period="quarter", limit=1),
-            "cash_flow": self.fmp.get_cash_flow(symbol, period="quarter", limit=1),
-            "earnings": self.fmp.get_earnings_surprises(symbol, limit=5),
-            "product_segments": self.fmp.get_revenue_product_segmentation(symbol),
-            "geo_segments": self.fmp.get_revenue_geographic_segmentation(symbol),
-            "ratios": self.fmp.get_ratios(symbol, period="quarter", limit=1),
-            "key_metrics": self.fmp.get_key_metrics(symbol, period="quarter", limit=1),
+            "profile": self.cache.get("profile", symbol),
+            "income_quarterly": self.cache.get("income_quarterly", symbol, limit=5),
+            "income_annual": self.cache.get("income_annual", symbol, limit=3),
+            "balance_sheet": self.cache.get("balance_sheet", symbol, limit=1),
+            "cash_flow": self.cache.get("cash_flow", symbol, limit=1),
+            "earnings": self.cache.get("earnings", symbol, limit=5),
+            "product_segments": self.cache.get("product_segments", symbol),
+            "geo_segments": self.cache.get("geo_segments", symbol),
+            "ratios": self.cache.get("ratios", symbol, limit=1),
+            "key_metrics": self.cache.get("key_metrics", symbol, limit=1),
         }
 
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -77,12 +73,11 @@ When answering:
         data = {}
         for key, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
+                print(f"[CHAT AGENT] Error fetching {key}: {result}")
                 data[key] = None
             else:
                 data[key] = result
 
-        # Cache for subsequent questions
-        self._data_cache[symbol] = data
         return data
 
     def format_data_context(self, data: Dict[str, Any], symbol: str) -> str:
@@ -285,10 +280,7 @@ Answer the question using ONLY the data provided above. If the information neede
 
     def clear_cache(self, symbol: Optional[str] = None):
         """Clear cached data for a symbol or all symbols."""
-        if symbol:
-            self._data_cache.pop(symbol.upper(), None)
-        else:
-            self._data_cache.clear()
+        self.cache.clear_cache(symbol)
 
 
 # Singleton instance

@@ -1,0 +1,30 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "profile",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 1,
+  "data": {
+    "symbol": "AAPL",
+    "companyName": "Apple Inc.",
+    "exchange": "NASDAQ",
+    "exchangeShortName": "NASDAQ",
+    "price": 225.50,
+    "change": 2.35,
+    "changePercentage": 1.05,
+    "marketCap": 3500000000000,
+    "volume": 45000000,
+    "averageVolume": 55000000,
+    "beta": 1.25,
+    "range": "164.08 - 237.49",
+    "sector": "Technology",
+    "industry": "Consumer Electronics",
+    "ceo": "Tim Cook",
+    "fullTimeEmployees": 164000,
+    "description": "Apple Inc. designs, manufactures, and markets smartphones, personal computers, tablets, wearables, and accessories worldwide.",
+    "website": "https://www.apple.com",
+    "image": "https://financialmodelingprep.com/image-stock/AAPL.png",
+    "ipoDate": "1980-12-12",
+    "country": "US",
+    "currency": "USD"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "cash_flow",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 90,
+  "data": [
+    {
+      "date": "2025-12-28",
+      "symbol": "AAPL",
+      "period": "Q1",
+      "fiscalYear": 2025,
+      "operatingCashFlow": 39900000000,
+      "capitalExpenditure": -2800000000,
+      "freeCashFlow": 37100000000,
+      "commonDividendsPaid": -3800000000,
+      "commonStockRepurchased": -25000000000,
+      "netDebtIssuance": -1200000000
+    }
+  ]
+}

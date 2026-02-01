@@ -1,0 +1,26 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "balance_sheet",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 90,
+  "data": [
+    {
+      "date": "2025-12-28",
+      "symbol": "AAPL",
+      "period": "Q1",
+      "fiscalYear": 2025,
+      "cashAndCashEquivalents": 45317000000,
+      "shortTermInvestments": 25600000000,
+      "cashAndShortTermInvestments": 70917000000,
+      "netReceivables": 60900000000,
+      "inventory": 6300000000,
+      "totalCurrentAssets": 143200000000,
+      "totalAssets": 364800000000,
+      "accountPayables": 58100000000,
+      "shortTermDebt": 10900000000,
+      "longTermDebt": 96800000000,
+      "totalLiabilities": 290400000000,
+      "totalStockholdersEquity": 74400000000
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "earnings",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 90,
+  "data": [
+    {
+      "date": "2025-12-28",
+      "symbol": "AAPL",
+      "epsActual": 2.40,
+      "epsEstimated": 2.35,
+      "revenueActual": 124300000000,
+      "revenueEstimated": 122500000000
+    },
+    {
+      "date": "2025-09-28",
+      "symbol": "AAPL",
+      "epsActual": 0.97,
+      "epsEstimated": 1.02,
+      "revenueActual": 94900000000,
+      "revenueEstimated": 96200000000
+    },
+    {
+      "date": "2025-06-28",
+      "symbol": "AAPL",
+      "epsActual": 1.40,
+      "epsEstimated": 1.35,
+      "revenueActual": 85800000000,
+      "revenueEstimated": 84500000000
+    },
+    {
+      "date": "2025-03-29",
+      "symbol": "AAPL",
+      "epsActual": 1.53,
+      "epsEstimated": 1.50,
+      "revenueActual": 90800000000,
+      "revenueEstimated": 89500000000
+    },
+    {
+      "date": "2024-12-30",
+      "symbol": "AAPL",
+      "epsActual": 2.18,
+      "epsEstimated": 2.10,
+      "revenueActual": 119600000000,
+      "revenueEstimated": 117500000000
+    }
+  ]
+}

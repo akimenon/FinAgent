@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 import asyncio
 from services.fmp_service import fmp_service
+from services.fmp_cache import fmp_cache
 from agents.data_fetcher import DataFetcherAgent
 from agents.analysis_agent import AnalysisAgent
 from agents.guidance_tracker import GuidanceTrackerAgent
@@ -23,19 +24,41 @@ async def get_quick_overview(symbol: str):
     symbol = symbol.upper()
 
     try:
-        # Fetch all data in parallel for speed
-        profile_task = fmp_service.get_company_profile(symbol)
-        income_task = fmp_service.get_income_statement(symbol, period="quarter", limit=1)
-        balance_task = fmp_service.get_balance_sheet(symbol, period="quarter", limit=1)
-        cashflow_task = fmp_service.get_cash_flow(symbol, period="quarter", limit=1)
-        earnings_task = fmp_service.get_earnings_surprises(symbol, limit=1)
-        product_seg_task = fmp_service.get_revenue_product_segmentation(symbol)
-        geo_seg_task = fmp_service.get_revenue_geographic_segmentation(symbol)
+        # Fetch all data in parallel using cache (minimizes API calls)
+        profile_task = fmp_cache.get("profile", symbol)
+        income_task = fmp_cache.get("income_quarterly", symbol, limit=1)
+        balance_task = fmp_cache.get("balance_sheet", symbol, limit=1)
+        cashflow_task = fmp_cache.get("cash_flow", symbol, limit=1)
+        earnings_task = fmp_cache.get("earnings", symbol, limit=1)
+        product_seg_task = fmp_cache.get("product_segments", symbol)
+        geo_seg_task = fmp_cache.get("geo_segments", symbol)
+        earnings_cal_task = fmp_cache.get("earnings_calendar", symbol)
 
-        profile, income, balance, cashflow, earnings, product_seg, geo_seg = await asyncio.gather(
+        results = await asyncio.gather(
             profile_task, income_task, balance_task, cashflow_task, earnings_task,
-            product_seg_task, geo_seg_task
+            product_seg_task, geo_seg_task, earnings_cal_task,
+            return_exceptions=True  # Don't fail if one endpoint errors
         )
+
+        profile, income, balance, cashflow, earnings, product_seg, geo_seg, earnings_cal = results
+
+        # Handle any exceptions gracefully
+        if isinstance(profile, Exception):
+            raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {profile}")
+        if isinstance(income, Exception):
+            income = []
+        if isinstance(balance, Exception):
+            balance = []
+        if isinstance(cashflow, Exception):
+            cashflow = []
+        if isinstance(earnings, Exception):
+            earnings = []
+        if isinstance(product_seg, Exception):
+            product_seg = []
+        if isinstance(geo_seg, Exception):
+            geo_seg = []
+        if isinstance(earnings_cal, Exception):
+            earnings_cal = None
 
         # Check for premium restriction errors
         if income and isinstance(income, list) and len(income) > 0:
@@ -117,11 +140,46 @@ async def get_quick_overview(symbol: str):
                 "beat": (latest_earnings.get("epsActual", 0) or 0) > (latest_earnings.get("epsEstimated", 0) or 0) if latest_earnings else None,
             },
             "revenuePillars": _process_revenue_pillars(product_seg, geo_seg),
+            "nextEarnings": _get_next_earnings(earnings_cal),
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _get_next_earnings(earnings_cal: list) -> dict:
+    """
+    Extract the next upcoming earnings date from the calendar.
+    """
+    if not earnings_cal:
+        return None
+
+    today = datetime.now().date()
+
+    # Find the next upcoming earnings date
+    for entry in earnings_cal:
+        earnings_date_str = entry.get("date")
+        if not earnings_date_str:
+            continue
+
+        try:
+            earnings_date = datetime.strptime(earnings_date_str, "%Y-%m-%d").date()
+            if earnings_date >= today:
+                # Calculate days until earnings
+                days_until = (earnings_date - today).days
+
+                return {
+                    "date": earnings_date_str,
+                    "daysUntil": days_until,
+                    "time": entry.get("time"),  # "bmo" (before market open) or "amc" (after market close)
+                    "epsEstimate": entry.get("eps"),
+                    "revenueEstimate": entry.get("revenue"),
+                }
+        except ValueError:
+            continue
+
+    return None
 
 
 def _process_revenue_pillars(product_seg: list, geo_seg: list) -> dict:
@@ -341,3 +399,21 @@ async def get_analysis(symbol: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{symbol}/cache-status")
+async def get_cache_status(symbol: str):
+    """
+    Get cache status for a symbol - shows what's cached and when it expires.
+    Useful for monitoring API usage.
+    """
+    return fmp_cache.get_cache_status(symbol.upper())
+
+
+@router.delete("/{symbol}/cache")
+async def clear_symbol_cache(symbol: str):
+    """
+    Clear all cached data for a symbol to force fresh API calls.
+    """
+    fmp_cache.clear_cache(symbol.upper())
+    return {"message": f"Cache cleared for {symbol.upper()}"}
