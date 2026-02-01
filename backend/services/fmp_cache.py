@@ -46,12 +46,23 @@ class FMPCache:
         "key_metrics": 90,
         "analyst_estimates": 30,  # Estimates update more frequently
 
+        # Analyst data - updates frequently
+        "price_target_consensus": 1,  # Price targets can change daily
+        "price_target_summary": 1,
+        "analyst_grades": 1,  # Upgrades/downgrades happen frequently
+        "analyst_grades_consensus": 1,
+
         # Annual - segment data
         "product_segments": 365,
         "geo_segments": 365,
 
         # Search results - short cache
         "search": 7,
+
+        # News & trading activity - refresh frequently
+        "stock_news": 0.25,  # 6 hours
+        "insider_trading": 1,
+        "senate_trades": 1,
     }
 
     def __init__(self, cache_dir: str = None):
@@ -190,6 +201,21 @@ class FMPCache:
                 to_date=kwargs.get("to_date")
             ),
             "earnings_calendar": lambda: self.fmp.get_earnings_calendar(symbol),
+            "stock_news": lambda: self.fmp.get_stock_news(
+                symbol, limit=kwargs.get("limit", 10)
+            ),
+            "insider_trading": lambda: self.fmp.get_insider_trading(
+                symbol, limit=kwargs.get("limit", 10)
+            ),
+            "senate_trades": lambda: self.fmp.get_senate_trades(
+                symbol, limit=kwargs.get("limit", 10)
+            ),
+            "price_target_consensus": lambda: self.fmp.get_price_target_consensus(symbol),
+            "price_target_summary": lambda: self.fmp.get_price_target_summary(symbol),
+            "analyst_grades": lambda: self.fmp.get_analyst_grades(
+                symbol, limit=kwargs.get("limit", 10)
+            ),
+            "analyst_grades_consensus": lambda: self.fmp.get_analyst_grades_consensus(symbol),
         }
 
         fetcher = endpoint_mapping.get(endpoint)

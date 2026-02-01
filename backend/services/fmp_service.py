@@ -123,6 +123,66 @@ class FMPService:
         """Get earnings calendar for a symbol (past and upcoming earnings dates)"""
         return await self._request("earning-calendar-confirmed", {"symbol": symbol})
 
+    async def get_stock_news(self, symbol: str = None, limit: int = 10) -> List[Dict]:
+        """Get stock news for a specific symbol"""
+        params = {"limit": limit, "page": 0}
+        if symbol:
+            params["symbols"] = symbol
+        return await self._request("news/stock", params)
+
+    async def get_insider_trading(self, symbol: str = None, limit: int = 10) -> List[Dict]:
+        """Get insider trading activity for a symbol"""
+        params = {"limit": limit, "page": 0}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("insider-trading/search", params)
+
+    async def get_senate_trades(self, symbol: str = None, limit: int = 10) -> List[Dict]:
+        """Get senate trading disclosures"""
+        params = {"limit": limit}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("senate-trades", params)
+
+    async def get_top_gainers(self, limit: int = 10) -> List[Dict]:
+        """Get top gaining stocks of the day"""
+        return await self._request("biggest-gainers", {"limit": limit})
+
+    async def get_top_losers(self, limit: int = 10) -> List[Dict]:
+        """Get top losing stocks of the day"""
+        return await self._request("biggest-losers", {"limit": limit})
+
+    async def get_quote(self, symbol: str) -> Dict:
+        """Get real-time quote for a symbol"""
+        data = await self._request("quote", {"symbol": symbol})
+        return data[0] if data else {}
+
+    async def get_financial_growth(self, symbol: str, period: str = "quarter", limit: int = 4) -> List[Dict]:
+        """Get financial growth metrics (QoQ/YoY growth rates)"""
+        return await self._request(
+            "financial-growth",
+            {"symbol": symbol, "period": period, "limit": limit}
+        )
+
+    async def get_price_target_consensus(self, symbol: str) -> Dict:
+        """Get consensus price target (high, low, median, average)"""
+        data = await self._request("price-target-consensus", {"symbol": symbol})
+        return data[0] if data else {}
+
+    async def get_price_target_summary(self, symbol: str) -> Dict:
+        """Get price target summary with historical averages"""
+        data = await self._request("price-target-summary", {"symbol": symbol})
+        return data[0] if data else {}
+
+    async def get_analyst_grades(self, symbol: str, limit: int = 10) -> List[Dict]:
+        """Get recent analyst grades/ratings with firm names"""
+        return await self._request("grades", {"symbol": symbol, "limit": limit})
+
+    async def get_analyst_grades_consensus(self, symbol: str) -> Dict:
+        """Get consensus grades (strong buy/buy/hold/sell/strong sell counts)"""
+        data = await self._request("grades-consensus", {"symbol": symbol})
+        return data[0] if data else {}
+
     async def close(self):
         """Close the HTTP client"""
         if self._client:
