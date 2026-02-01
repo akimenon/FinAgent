@@ -52,3 +52,13 @@ frontend/          # React + Vite + TailwindCSS
 - Never commit `.env` file
 - Use `.env.example` as template
 - Required: `FMP_API_KEY`, `ANTHROPIC_API_KEY` (or Ollama for local LLM)
+
+## Number Formatting
+
+**Always display large numbers in abbreviated format:**
+
+- Billions: Use `B` suffix (e.g., `$57.0B` instead of `$57,006,000,000`)
+- Millions: Use `M` suffix (e.g., `$125.5M` instead of `$125,500,000`)
+- Thousands: Use `K` suffix for values >= 10K (e.g., `$50K` instead of `$50,000`)
+
+Keep 1 decimal place for precision when needed (e.g., `$57.0B`, `$2.3M`).

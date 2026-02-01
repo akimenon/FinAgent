@@ -1,15 +1,70 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, TrendingUp, BarChart3, Target } from 'lucide-react'
+import { Search, TrendingUp, TrendingDown, BarChart3, Target, Cpu, Car, Zap, ChevronDown, ChevronUp } from 'lucide-react'
 import StockSearch from '../components/search/StockSearch'
+import { companiesApi } from '../services/api'
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [recentSearches] = useState(['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'META'])
+  const [activeCategory, setActiveCategory] = useState('gainers')
+  const [marketMovers, setMarketMovers] = useState({ gainers: [], losers: [] })
+  const [sectorData, setSectorData] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [sectorLoading, setSectorLoading] = useState(false)
+
+  useEffect(() => {
+    const fetchMarketMovers = async () => {
+      try {
+        const response = await companiesApi.getMarketMovers()
+        setMarketMovers(response.data)
+      } catch (error) {
+        console.error('Failed to fetch market movers:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchMarketMovers()
+  }, [])
+
+  // Fetch sector data when switching to a sector category
+  useEffect(() => {
+    const fetchSectorData = async () => {
+      if (['tech', 'semiconductors', 'ev'].includes(activeCategory) && !sectorData[activeCategory]) {
+        setSectorLoading(true)
+        try {
+          const response = await companiesApi.getSectorStocks(activeCategory)
+          setSectorData(prev => ({ ...prev, [activeCategory]: response.data.stocks }))
+        } catch (error) {
+          console.error(`Failed to fetch ${activeCategory} stocks:`, error)
+        } finally {
+          setSectorLoading(false)
+        }
+      }
+    }
+    fetchSectorData()
+  }, [activeCategory])
 
   const handleSelectStock = (symbol) => {
     navigate(`/analysis/${symbol}`)
   }
+
+  const categories = [
+    { id: 'gainers', label: 'Top Gainers', icon: TrendingUp, color: 'emerald' },
+    { id: 'losers', label: 'Top Losers', icon: TrendingDown, color: 'red' },
+    { id: 'tech', label: 'Tech', icon: Zap, color: 'blue' },
+    { id: 'semiconductors', label: 'Semiconductors', icon: Cpu, color: 'purple' },
+    { id: 'ev', label: 'EV', icon: Car, color: 'amber' },
+  ]
+
+  const getStocksForCategory = (categoryId) => {
+    if (categoryId === 'gainers') return marketMovers.gainers || []
+    if (categoryId === 'losers') return marketMovers.losers || []
+    return sectorData[categoryId] || []
+  }
+
+  const currentStocks = getStocksForCategory(activeCategory)
+  const isLoading = (loading && ['gainers', 'losers'].includes(activeCategory)) ||
+                    (sectorLoading && ['tech', 'semiconductors', 'ev'].includes(activeCategory))
 
   return (
     <div className="space-y-8">
@@ -71,20 +126,95 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick Access */}
+      {/* Stock Categories */}
       <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h3 className="text-lg font-semibold mb-4">Popular Stocks</h3>
-        <div className="flex flex-wrap gap-2">
-          {recentSearches.map((symbol) => (
-            <button
-              key={symbol}
-              onClick={() => handleSelectStock(symbol)}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
-            >
-              {symbol}
-            </button>
-          ))}
+        <h3 className="text-lg font-semibold mb-4">Explore Stocks</h3>
+
+        {/* Category Pills */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          {categories.map((cat) => {
+            const Icon = cat.icon
+            const isActive = activeCategory === cat.id
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                  isActive
+                    ? `bg-${cat.color}-500/20 text-${cat.color}-400 border border-${cat.color}-500/50`
+                    : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                }`}
+                style={isActive ? {
+                  backgroundColor: cat.color === 'emerald' ? 'rgba(16, 185, 129, 0.2)' :
+                                   cat.color === 'red' ? 'rgba(239, 68, 68, 0.2)' :
+                                   cat.color === 'blue' ? 'rgba(59, 130, 246, 0.2)' :
+                                   cat.color === 'purple' ? 'rgba(168, 85, 247, 0.2)' :
+                                   'rgba(245, 158, 11, 0.2)',
+                  color: cat.color === 'emerald' ? '#34d399' :
+                         cat.color === 'red' ? '#f87171' :
+                         cat.color === 'blue' ? '#60a5fa' :
+                         cat.color === 'purple' ? '#c084fc' :
+                         '#fbbf24',
+                  borderColor: cat.color === 'emerald' ? 'rgba(16, 185, 129, 0.5)' :
+                               cat.color === 'red' ? 'rgba(239, 68, 68, 0.5)' :
+                               cat.color === 'blue' ? 'rgba(59, 130, 246, 0.5)' :
+                               cat.color === 'purple' ? 'rgba(168, 85, 247, 0.5)' :
+                               'rgba(245, 158, 11, 0.5)',
+                } : {}}
+              >
+                <Icon className="w-4 h-4" />
+                {cat.label}
+              </button>
+            )
+          })}
         </div>
+
+        {/* Stock List */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {currentStocks.slice(0, 10).map((stock, index) => (
+              <button
+                key={stock.symbol || index}
+                onClick={() => handleSelectStock(stock.symbol)}
+                className="bg-slate-700/50 hover:bg-slate-600 rounded-lg p-3 transition-colors text-left"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">{stock.symbol}</span>
+                  {stock.price != null && (
+                    <span className="text-sm text-slate-300">${stock.price.toFixed(2)}</span>
+                  )}
+                </div>
+                {stock.changePercent != null && (
+                  <div className={`text-sm flex items-center gap-1 mt-1 ${
+                    stock.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  }`}>
+                    {stock.changePercent >= 0 ? (
+                      <ChevronUp className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
+                    {Math.abs(stock.changePercent).toFixed(2)}%
+                  </div>
+                )}
+                {stock.name && (
+                  <div className="text-xs text-slate-400 truncate mt-1">
+                    {stock.name.length > 18 ? stock.name.substring(0, 18) + '...' : stock.name}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {currentStocks.length === 0 && !loading && (
+          <div className="text-center text-slate-500 py-8">
+            No stocks available for this category
+          </div>
+        )}
       </div>
 
       {/* Agent Architecture Info */}
