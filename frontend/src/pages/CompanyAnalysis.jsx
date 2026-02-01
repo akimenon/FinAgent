@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
 import {
   ArrowLeft,
   TrendingUp,
@@ -20,26 +19,18 @@ import {
   ChevronDown,
   ExternalLink,
   Building2,
-  Users,
   Banknote,
   Wallet,
   ArrowUpRight,
   ArrowDownRight,
-  MessageSquare,
-  Send,
   Calendar,
   Newspaper,
   UserCheck,
   Landmark,
   Shield,
   Star,
-  ThumbsUp,
-  ThumbsDown,
 } from 'lucide-react'
-import { financialsApi, agentApi } from '../services/api'
-import QuarterlyResultsTable from '../components/tables/QuarterlyResultsTable'
-import BeatMissChart from '../components/charts/BeatMissChart'
-import EarningsTrendChart from '../components/charts/EarningsTrendChart'
+import { financialsApi } from '../services/api'
 import PriceChart from '../components/charts/PriceChart'
 
 // Format large numbers
@@ -128,28 +119,6 @@ function MetricCard({ label, value, subValue, icon: Icon, trend, color = 'blue' 
   )
 }
 
-// Action Pill Component
-function ActionPill({ label, icon: Icon, onClick, active, loading }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={loading}
-      className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
-        active
-          ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
-          : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600 hover:bg-slate-700'
-      } ${loading ? 'opacity-50 cursor-wait' : ''}`}
-    >
-      {loading ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
-      ) : (
-        Icon && <Icon className="w-4 h-4" />
-      )}
-      {label}
-    </button>
-  )
-}
-
 export default function CompanyAnalysis() {
   const { symbol } = useParams()
   const navigate = useNavigate()
@@ -164,21 +133,10 @@ export default function CompanyAnalysis() {
   const [sectionData, setSectionData] = useState({})
   const [sectionLoading, setSectionLoading] = useState({})
 
-  // AI Analysis
-  const [aiAnalysis, setAiAnalysis] = useState(null)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiProgress, setAiProgress] = useState([])
-
   // Deep Insights (LLM-powered comprehensive analysis)
   const [deepInsights, setDeepInsights] = useState(null)
   const [deepInsightsLoading, setDeepInsightsLoading] = useState(false)
   const [deepInsightsExpanded, setDeepInsightsExpanded] = useState(false)
-
-  // Chat
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatMessages, setChatMessages] = useState([])
-  const [chatInput, setChatInput] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
 
   // Revenue Drivers view mode
   const [revenueView, setRevenueView] = useState('quarterly') // 'quarterly', 'annual', '4q'
@@ -218,7 +176,7 @@ export default function CompanyAnalysis() {
     }
   }
 
-  // Load section data on demand
+  // Load price chart data on demand
   const loadSection = async (section) => {
     if (activeSection === section) {
       setActiveSection(null)
@@ -232,80 +190,12 @@ export default function CompanyAnalysis() {
     setSectionLoading(prev => ({ ...prev, [section]: true }))
 
     try {
-      let data
-      switch (section) {
-        case 'quarterly':
-          const qRes = await financialsApi.getQuarterly(symbol, 5)
-          data = qRes.data.quarters
-          break
-        case 'beatmiss':
-          const bRes = await financialsApi.getSurprises(symbol, 12)
-          data = bRes.data.surprises
-          break
-        case 'price':
-          const pRes = await financialsApi.getPriceHistory(symbol, '1y')
-          data = pRes.data.prices
-          break
-        default:
-          data = null
-      }
-      setSectionData(prev => ({ ...prev, [section]: data }))
+      const pRes = await financialsApi.getPriceHistory(symbol, '1y')
+      setSectionData(prev => ({ ...prev, [section]: pRes.data.prices }))
     } catch (err) {
       console.error(`Failed to load ${section}:`, err)
     } finally {
       setSectionLoading(prev => ({ ...prev, [section]: false }))
-    }
-  }
-
-  // Load AI Analysis on demand
-  const loadAiAnalysis = () => {
-    if (aiAnalysis || aiLoading) return
-
-    setAiLoading(true)
-    setAiProgress([])
-
-    const eventSource = agentApi.queryStream(
-      symbol,
-      'Provide a comprehensive analysis including key insights, concerns, and investment implications.',
-      {
-        onMessage: (update) => {
-          setAiProgress(prev => [...prev, update])
-          if (update.phase === 'complete' && update.result) {
-            setAiAnalysis(update.result)
-            setAiLoading(false)
-          } else if (update.phase === 'error') {
-            setAiLoading(false)
-          }
-        },
-        onError: () => setAiLoading(false),
-        onComplete: () => setAiLoading(false),
-      }
-    )
-  }
-
-  // Send chat message
-  const sendChatMessage = async (e) => {
-    e.preventDefault()
-    if (!chatInput.trim() || chatLoading) return
-
-    const question = chatInput.trim()
-    setChatInput('')
-    setChatMessages(prev => [...prev, { role: 'user', content: question }])
-    setChatLoading(true)
-
-    try {
-      const response = await agentApi.chat(symbol, question)
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: response.data.answer
-      }])
-    } catch (err) {
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Error: ${err.response?.data?.detail || 'Failed to get answer'}`
-      }])
-    } finally {
-      setChatLoading(false)
     }
   }
 
@@ -458,7 +348,30 @@ export default function CompanyAnalysis() {
             </span>
           </div>
         )}
+        <button
+          onClick={() => loadSection('price')}
+          disabled={sectionLoading.price}
+          className={`rounded-lg px-4 py-2 flex items-center gap-2 transition-all ${
+            activeSection === 'price'
+              ? 'bg-gradient-to-r from-blue-500/20 to-blue-500/5 border border-blue-500/30 text-blue-400'
+              : 'bg-slate-800/50 border border-slate-700 text-slate-300 hover:border-slate-600 hover:bg-slate-700'
+          } ${sectionLoading.price ? 'opacity-50 cursor-wait' : ''}`}
+        >
+          {sectionLoading.price ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <TrendingUp className="w-3 h-3" />
+          )}
+          <span>Chart</span>
+        </button>
       </div>
+
+      {/* Price Chart - Expanded below Quick Stats */}
+      {activeSection === 'price' && sectionData.price && (
+        <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+          <PriceChart data={sectionData.price} />
+        </div>
+      )}
 
       {/* Analyst Ratings Section */}
       {analystRatings && (analystRatings.consensus || analystRatings.priceTarget) && (
@@ -1599,203 +1512,6 @@ export default function CompanyAnalysis() {
           )}
         </div>
       </div>
-
-      {/* Action Pills */}
-      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
-        <h2 className="text-lg font-semibold mb-4">Explore More</h2>
-        <div className="flex flex-wrap gap-3">
-          <ActionPill
-            label="Quarterly Trends"
-            icon={BarChart3}
-            active={activeSection === 'quarterly'}
-            loading={sectionLoading.quarterly}
-            onClick={() => loadSection('quarterly')}
-          />
-          <ActionPill
-            label="Beat/Miss History"
-            icon={Target}
-            active={activeSection === 'beatmiss'}
-            loading={sectionLoading.beatmiss}
-            onClick={() => loadSection('beatmiss')}
-          />
-          <ActionPill
-            label="Price History"
-            icon={TrendingUp}
-            active={activeSection === 'price'}
-            loading={sectionLoading.price}
-            onClick={() => loadSection('price')}
-          />
-          <ActionPill
-            label="AI Deep Analysis"
-            icon={Brain}
-            active={aiAnalysis !== null || aiLoading}
-            loading={aiLoading}
-            onClick={loadAiAnalysis}
-          />
-          <ActionPill
-            label="Ask a Question"
-            icon={MessageSquare}
-            active={chatOpen}
-            onClick={() => setChatOpen(!chatOpen)}
-          />
-        </div>
-
-        {/* Expanded Section Content */}
-        {activeSection === 'quarterly' && sectionData.quarterly && (
-          <div className="mt-6">
-            <QuarterlyResultsTable data={sectionData.quarterly} />
-            <div className="mt-4">
-              <EarningsTrendChart data={sectionData.quarterly} />
-            </div>
-          </div>
-        )}
-
-        {activeSection === 'beatmiss' && sectionData.beatmiss && (
-          <div className="mt-6">
-            <BeatMissChart data={sectionData.beatmiss} />
-            <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-              <div className="bg-emerald-500/10 rounded-lg p-4 border border-emerald-500/30">
-                <div className="text-2xl font-bold text-emerald-400">
-                  {sectionData.beatmiss.filter(d => d.beat_miss === 'BEAT').length}
-                </div>
-                <div className="text-sm text-slate-400">Beats</div>
-              </div>
-              <div className="bg-yellow-500/10 rounded-lg p-4 border border-yellow-500/30">
-                <div className="text-2xl font-bold text-yellow-400">
-                  {sectionData.beatmiss.filter(d => d.beat_miss === 'MEET').length}
-                </div>
-                <div className="text-sm text-slate-400">Meets</div>
-              </div>
-              <div className="bg-red-500/10 rounded-lg p-4 border border-red-500/30">
-                <div className="text-2xl font-bold text-red-400">
-                  {sectionData.beatmiss.filter(d => d.beat_miss === 'MISS').length}
-                </div>
-                <div className="text-sm text-slate-400">Misses</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeSection === 'price' && sectionData.price && (
-          <div className="mt-6">
-            <PriceChart data={sectionData.price} />
-          </div>
-        )}
-
-        {/* Chat Panel */}
-        {chatOpen && (
-          <div className="mt-6 bg-slate-900 rounded-xl border border-slate-600 overflow-hidden">
-            <div className="p-4 border-b border-slate-700 flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-blue-500" />
-              <h3 className="font-semibold">Ask anything about {symbol}</h3>
-            </div>
-
-            {/* Chat Messages */}
-            <div className="h-64 overflow-y-auto p-4 space-y-3">
-              {chatMessages.length === 0 && (
-                <div className="text-center text-slate-500 py-8">
-                  <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>Ask any question about {symbol}'s financials</p>
-                  <div className="mt-3 flex flex-wrap gap-2 justify-center">
-                    {[
-                      "What was iPhone revenue?",
-                      "How much cash does the company have?",
-                      "Did they beat earnings last quarter?",
-                      "What's the revenue from China?",
-                    ].map((q, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setChatInput(q)}
-                        className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-full border border-slate-600"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[80%] px-4 py-2 rounded-2xl ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-700 text-slate-200'
-                    }`}
-                  >
-                    <ReactMarkdown className="text-sm">{msg.content}</ReactMarkdown>
-                  </div>
-                </div>
-              ))}
-
-              {chatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-slate-700 px-4 py-2 rounded-2xl">
-                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Chat Input */}
-            <form onSubmit={sendChatMessage} className="p-3 border-t border-slate-700 flex gap-2">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder={`Ask about ${symbol}...`}
-                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500"
-                disabled={chatLoading}
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || chatLoading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
-
-      {/* AI Analysis Section */}
-      {aiLoading && (
-        <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Brain className="w-5 h-5 text-purple-500" />
-            AI Analysis in Progress
-          </h2>
-          <div className="space-y-2">
-            {aiProgress.map((p, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm text-slate-400">
-                <div className={`w-2 h-2 rounded-full ${
-                  p.phase === 'complete' ? 'bg-green-500' : 'bg-blue-500 animate-pulse'
-                }`} />
-                {p.message}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {aiAnalysis && (
-        <div className="bg-slate-800 rounded-xl p-6 border border-purple-500/30">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Brain className="w-5 h-5 text-purple-500" />
-            AI Analysis (Qwen)
-          </h2>
-          <div className="ai-analysis">
-            <ReactMarkdown>
-              {aiAnalysis.synthesis || 'No analysis available'}
-            </ReactMarkdown>
-          </div>
-        </div>
-      )}
 
       {/* Company Description */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
