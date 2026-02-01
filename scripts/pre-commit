@@ -1,0 +1,28 @@
+#!/bin/bash
+# Pre-commit hook - runs tests before allowing commit
+# Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Navigate to backend
+cd "$(dirname "$0")/../backend" 2>/dev/null || cd backend
+
+# Activate virtual environment if it exists
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+fi
+
+# Run tests
+echo "🧪 Running backend tests..."
+python -m pytest tests/ -q --tb=line
+
+if [ $? -eq 0 ]; then
+    echo "✅ All tests passed!"
+else
+    echo "❌ Tests failed. Commit aborted."
+    exit 1
+fi
+
+echo "✅ Pre-commit checks passed!"

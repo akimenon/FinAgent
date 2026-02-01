@@ -1,0 +1,28 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "product_segments",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 365,
+  "data": [
+    {
+      "fiscalYear": 2025,
+      "data": {
+        "iPhone": 209586000000,
+        "Mac": 30748000000,
+        "iPad": 26694000000,
+        "Wearables, Home and Accessories": 37005000000,
+        "Services": 96169000000
+      }
+    },
+    {
+      "fiscalYear": 2024,
+      "data": {
+        "iPhone": 200583000000,
+        "Mac": 29357000000,
+        "iPad": 28300000000,
+        "Wearables, Home and Accessories": 39845000000,
+        "Services": 85200000000
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "symbol": "AAPL",
+  "endpoint": "geo_segments",
+  "fetched_at": "2026-01-31T12:00:00",
+  "ttl_days": 365,
+  "data": [
+    {
+      "fiscalYear": 2025,
+      "data": {
+        "Americas": 169658000000,
+        "Europe": 101325000000,
+        "Greater China": 64377000000,
+        "Japan": 26842000000,
+        "Rest of Asia Pacific": 37000000000
+      }
+    },
+    {
+      "fiscalYear": 2024,
+      "data": {
+        "Americas": 162560000000,
+        "Europe": 94294000000,
+        "Greater China": 72559000000,
+        "Japan": 25052000000,
+        "Rest of Asia Pacific": 34821000000
+      }
+    }
+  ]
+}

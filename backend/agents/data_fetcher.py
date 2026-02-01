@@ -1,16 +1,16 @@
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
-from services.fmp_service import fmp_service
+from services.fmp_cache import fmp_cache
 
 
 class DataFetcherAgent:
     """
-    Agent responsible for fetching financial data from FMP API.
-    Handles caching and data transformation.
+    Agent responsible for fetching financial data.
+    Uses file-based cache to minimize API calls.
     """
 
     def __init__(self):
-        self.fmp = fmp_service
+        self.cache = fmp_cache
 
     async def fetch_all(self, symbol: str, quarters: int = 5) -> Dict[str, Any]:
         """
@@ -19,7 +19,7 @@ class DataFetcherAgent:
         """
         import asyncio
 
-        # Fetch data in parallel
+        # Fetch data in parallel (cache handles freshness)
         income_task = self.fetch_income_statement(symbol, quarters)
         surprises_task = self.fetch_earnings_surprises(symbol)
         estimates_task = self.fetch_analyst_estimates(symbol, quarters)
@@ -39,35 +39,35 @@ class DataFetcherAgent:
         }
 
     async def fetch_company_profile(self, symbol: str) -> Dict:
-        """Fetch company profile"""
+        """Fetch company profile (cached daily)"""
         try:
-            return await self.fmp.get_company_profile(symbol)
+            return await self.cache.get("profile", symbol)
         except Exception as e:
             return {"error": str(e)}
 
     async def fetch_income_statement(self, symbol: str, limit: int = 5) -> List[Dict]:
         """
-        Fetch quarterly income statements.
+        Fetch quarterly income statements (cached 90 days).
         Returns processed data with calculated metrics.
         """
         try:
-            data = await self.fmp.get_income_statement(symbol, period="quarter", limit=limit)
+            data = await self.cache.get("income_quarterly", symbol, limit=limit)
             return self._process_income_data(data)
         except Exception as e:
             return [{"error": str(e)}]
 
     async def fetch_earnings_surprises(self, symbol: str) -> List[Dict]:
-        """Fetch earnings surprises (beat/miss history)"""
+        """Fetch earnings surprises (cached 90 days)"""
         try:
-            data = await self.fmp.get_earnings_surprises(symbol)
+            data = await self.cache.get("earnings", symbol, limit=5)
             return self._process_surprises_data(data)
         except Exception as e:
             return [{"error": str(e)}]
 
     async def fetch_analyst_estimates(self, symbol: str, limit: int = 5) -> List[Dict]:
-        """Fetch analyst estimates"""
+        """Fetch analyst estimates (cached 30 days)"""
         try:
-            data = await self.fmp.get_analyst_estimates(symbol, period="quarter", limit=limit)
+            data = await self.cache.get("analyst_estimates", symbol, limit=limit)
             return data
         except Exception as e:
             return [{"error": str(e)}]
@@ -75,11 +75,11 @@ class DataFetcherAgent:
     async def fetch_historical_prices(
         self, symbol: str, days: int = 365
     ) -> Dict[str, Any]:
-        """Fetch historical price data"""
+        """Fetch historical price data (cached daily)"""
         try:
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            data = await self.fmp.get_historical_prices(symbol, from_date, to_date)
+            data = await self.cache.get("price_history", symbol, from_date=from_date, to_date=to_date)
             return data
         except Exception as e:
             return {"error": str(e)}

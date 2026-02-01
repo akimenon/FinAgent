@@ -119,6 +119,10 @@ class FMPService:
             {"symbol": symbol, "period": period, "limit": limit}
         )
 
+    async def get_earnings_calendar(self, symbol: str) -> List[Dict]:
+        """Get earnings calendar for a symbol (past and upcoming earnings dates)"""
+        return await self._request("earning-calendar-confirmed", {"symbol": symbol})
+
     async def close(self):
         """Close the HTTP client"""
         if self._client:
