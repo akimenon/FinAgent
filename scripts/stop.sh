@@ -1,10 +1,17 @@
 #!/bin/bash
 # FinAgent - Stop all services
-# Usage: ./scripts/stop.sh
+# Usage: ./scripts/stop.sh [--all]
+#   --all  Also stop Ollama
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PID_DIR="$PROJECT_DIR/.pids"
+
+# Parse arguments
+STOP_OLLAMA=false
+if [ "$1" = "--all" ]; then
+    STOP_OLLAMA=true
+fi
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -54,8 +61,16 @@ stop_service "frontend"
 # Stop Backend
 stop_service "backend"
 
-# Optionally stop Ollama (commented out by default - you may want to keep it running)
-# stop_service "ollama"
+# Stop Ollama if --all flag is set
+if [ "$STOP_OLLAMA" = true ]; then
+    echo -e "${YELLOW}Stopping Ollama...${NC}"
+    if pgrep -x "ollama" > /dev/null; then
+        pkill -x "ollama"
+        echo -e "  ✅ Ollama stopped"
+    else
+        echo -e "  ⚠️  Ollama not running"
+    fi
+fi
 
 # Also kill any orphaned processes on the ports
 echo -e "${YELLOW}Cleaning up ports...${NC}"
