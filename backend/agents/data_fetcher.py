@@ -75,11 +75,13 @@ class DataFetcherAgent:
     async def fetch_historical_prices(
         self, symbol: str, days: int = 365
     ) -> Dict[str, Any]:
-        """Fetch historical price data (cached daily)"""
+        """Fetch historical price data (cached daily, per period)"""
         try:
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            data = await self.cache.get("price_history", symbol, from_date=from_date, to_date=to_date)
+            # Use period-specific cache key to avoid returning wrong cached data
+            cache_key = f"price_history_{days}d"
+            data = await self.cache.get(cache_key, symbol, from_date=from_date, to_date=to_date)
             return data
         except Exception as e:
             return {"error": str(e)}

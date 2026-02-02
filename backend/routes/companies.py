@@ -68,6 +68,64 @@ async def get_market_movers():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/market-indices")
+async def get_market_indices():
+    """
+    Get real-time quotes for major market indicators.
+    Returns indices, ETFs, crypto, and commodities.
+    """
+    # All market indicators grouped by category
+    indicators = [
+        # Major indices
+        {"symbol": "^GSPC", "name": "S&P 500", "category": "index"},
+        {"symbol": "^DJI", "name": "Dow", "category": "index"},
+        {"symbol": "^IXIC", "name": "NASDAQ", "category": "index"},
+        # Crypto
+        {"symbol": "BTCUSD", "name": "BTC", "category": "crypto"},
+        {"symbol": "ETHUSD", "name": "ETH", "category": "crypto"},
+        # Commodities
+        {"symbol": "GCUSD", "name": "Gold", "category": "commodity"},
+        {"symbol": "SIUSD", "name": "Silver", "category": "commodity"},
+    ]
+
+    try:
+        quote_tasks = [fmp_service.get_quote(ind["symbol"]) for ind in indicators]
+        quotes = await asyncio.gather(*quote_tasks, return_exceptions=True)
+
+        result = []
+        for ind, quote in zip(indicators, quotes):
+            if isinstance(quote, Exception) or not quote:
+                result.append({
+                    "symbol": ind["symbol"],
+                    "name": ind["name"],
+                    "category": ind["category"],
+                    "price": None,
+                    "change": None,
+                    "changePercent": None,
+                })
+            else:
+                price = quote.get("price")
+                change = quote.get("change")
+                change_pct = quote.get("changesPercentage")
+                # Calculate change percent if not provided
+                if change_pct is None and price and change:
+                    prev_price = price - change
+                    if prev_price != 0:
+                        change_pct = (change / prev_price) * 100
+                result.append({
+                    "symbol": ind["symbol"],
+                    "name": ind["name"],
+                    "category": ind["category"],
+                    "price": price,
+                    "change": change,
+                    "changePercent": change_pct,
+                })
+
+        return {"indices": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/sectors/{sector}")
 async def get_sector_stocks(sector: str):
     """

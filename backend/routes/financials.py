@@ -5,12 +5,81 @@ import asyncio
 from services.fmp_service import fmp_service
 from services.fmp_cache import fmp_cache
 from services.insights_cache import insights_cache
+from services.company_assets import enrich_with_company_info
 from agents.data_fetcher import DataFetcherAgent
 from agents.analysis_agent import AnalysisAgent
 from agents.guidance_tracker import GuidanceTrackerAgent
 from agents.deep_insights_agent import deep_insights_agent
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
+
+
+@router.get("/earnings-calendar")
+async def get_upcoming_earnings_calendar(days: int = 7, enrich: bool = True):
+    """
+    Get market-wide earnings calendar for the next N days.
+
+    Args:
+        days: Number of days to look ahead (default 7, max 30)
+        enrich: If True, include company name and logo (slower but richer data)
+
+    Returns:
+        Upcoming earnings announcements with estimates and company info
+    """
+    # Limit days to reasonable range
+    days = min(max(days, 1), 30)
+
+    today = datetime.now()
+    from_date = today.strftime("%Y-%m-%d")
+    to_date = (today + timedelta(days=days)).strftime("%Y-%m-%d")
+
+    try:
+        # Fetch earnings calendar from cache or API
+        # Include days in cache key so different ranges don't conflict
+        data = await fmp_cache.get_market_data(
+            f"market_earnings_calendar_{days}d",
+            from_date=from_date,
+            to_date=to_date
+        )
+
+        if not data:
+            return {
+                "earnings": [],
+                "count": 0,
+                "dateRange": {"from": from_date, "to": to_date}
+            }
+
+        # Process earnings data
+        earnings = []
+        for item in data:
+            # Only include items with valid dates and symbols
+            if not item.get("date") or not item.get("symbol"):
+                continue
+
+            earnings.append({
+                "symbol": item.get("symbol"),
+                "date": item.get("date"),
+                "epsEstimate": item.get("epsEstimated"),
+                "revenueEstimate": item.get("revenueEstimated"),
+                "fiscalDateEnding": item.get("fiscalDateEnding"),
+                "updatedAt": item.get("lastUpdated"),
+            })
+
+        # Sort by date, then by symbol for consistent ordering
+        earnings.sort(key=lambda x: (x["date"], x["symbol"]))
+
+        # Enrich with company profiles (name, logo, sector, industry) from static assets
+        # This is instant - no API calls needed
+        if enrich and earnings:
+            enrich_with_company_info(earnings, symbol_key="symbol")
+
+        return {
+            "earnings": earnings,
+            "count": len(earnings),
+            "dateRange": {"from": from_date, "to": to_date}
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch earnings calendar: {str(e)}")
 
 data_fetcher = DataFetcherAgent()
 analyzer = AnalysisAgent()

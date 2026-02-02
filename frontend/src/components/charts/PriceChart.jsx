@@ -8,7 +8,16 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-export default function PriceChart({ data }) {
+const PERIODS = [
+  { value: '1m', label: '1M' },
+  { value: '3m', label: '3M' },
+  { value: '6m', label: '6M' },
+  { value: '1y', label: '1Y' },
+  { value: '2y', label: '2Y' },
+  { value: '5y', label: '5Y' },
+]
+
+export default function PriceChart({ data, period = '1y', onPeriodChange, loading }) {
   if (!data || data.length === 0) {
     return (
       <div className="h-64 flex items-center justify-center text-slate-400">
@@ -76,6 +85,31 @@ export default function PriceChart({ data }) {
 
   return (
     <div className="space-y-4">
+      {/* Period selector */}
+      {onPeriodChange && (
+        <div className="flex items-center justify-between">
+          <div className="flex gap-1">
+            {PERIODS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => onPeriodChange(p.value)}
+                disabled={loading}
+                className={`px-3 py-1.5 text-sm rounded-full transition-all ${
+                  period === p.value
+                    ? 'bg-blue-500/20 border border-blue-500/50 text-blue-400'
+                    : 'bg-slate-700 border border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                } ${loading ? 'opacity-50 cursor-wait' : ''}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {loading && (
+            <span className="text-xs text-slate-500">Loading...</span>
+          )}
+        </div>
+      )}
+
       {/* Summary stats */}
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-4">
@@ -86,6 +120,9 @@ export default function PriceChart({ data }) {
           <div>
             <span className="text-slate-400">Period Low: </span>
             <span className="font-medium text-red-400">${minPrice.toFixed(2)}</span>
+          </div>
+          <div className="text-slate-500 text-xs">
+            ({chartData.length} days)
           </div>
         </div>
         <div className={`font-medium ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>

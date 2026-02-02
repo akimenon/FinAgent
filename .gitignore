@@ -31,3 +31,10 @@ npm-debug.log*
 
 # Build
 frontend/dist/
+
+# Claude Code skills (local workflow)
+.claude/skills/
+
+# Process IDs and logs
+.pids/
+logs/

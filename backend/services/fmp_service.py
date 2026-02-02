@@ -183,6 +183,22 @@ class FMPService:
         data = await self._request("grades-consensus", {"symbol": symbol})
         return data[0] if data else {}
 
+    async def get_market_earnings_calendar(
+        self, from_date: str, to_date: str, fmp_cache=None
+    ) -> List[Dict]:
+        """
+        Get market-wide earnings calendar for a date range.
+
+        Args:
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+            fmp_cache: Unused, kept for API compatibility
+        """
+        return await self._request(
+            "earnings-calendar",
+            {"from": from_date, "to": to_date}
+        )
+
     async def close(self):
         """Close the HTTP client"""
         if self._client:

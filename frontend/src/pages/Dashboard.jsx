@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Search, TrendingUp, TrendingDown, BarChart3, Target, Cpu, Car, Zap, ChevronDown, ChevronUp } from 'lucide-react'
+import { useNavigate, Link } from 'react-router-dom'
+import { TrendingUp, TrendingDown, BarChart3, Target, Cpu, Car, Zap, ChevronDown, ChevronUp, Calendar } from 'lucide-react'
 import StockSearch from '../components/search/StockSearch'
 import { companiesApi } from '../services/api'
 
@@ -85,7 +85,7 @@ export default function Dashboard() {
       </div>
 
       {/* Features */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
           <div className="flex items-center space-x-3 mb-4">
             <div className="p-2 bg-blue-500/20 rounded-lg">
@@ -124,6 +124,21 @@ export default function Dashboard() {
             actionable recommendations.
           </p>
         </div>
+
+        <Link
+          to="/earnings"
+          className="bg-slate-800 rounded-lg p-6 border border-slate-700 hover:border-blue-500/50 hover:bg-slate-700/50 transition-all text-left"
+        >
+          <div className="flex items-center space-x-3 mb-4">
+            <div className="p-2 bg-amber-500/20 rounded-lg">
+              <Calendar className="h-6 w-6 text-amber-500" />
+            </div>
+            <h3 className="text-lg font-semibold">Earnings Calendar</h3>
+          </div>
+          <p className="text-slate-400">
+            View upcoming earnings announcements for the next 7 days.
+          </p>
+        </Link>
       </div>
 
       {/* Stock Categories */}
@@ -259,6 +274,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
     </div>
   )
 }
