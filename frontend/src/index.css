@@ -24,6 +24,15 @@ body {
   @apply bg-slate-500;
 }
 
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Agent status animations */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }

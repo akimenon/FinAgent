@@ -63,6 +63,9 @@ class FMPCache:
         "stock_news": 0.25,  # 6 hours
         "insider_trading": 1,
         "senate_trades": 1,
+
+        # Market-wide data (non-symbol-specific)
+        "market_earnings_calendar": 0.25,  # 6 hours
     }
 
     def __init__(self, cache_dir: str = None):
@@ -81,6 +84,49 @@ class FMPCache:
         symbol_dir.mkdir(exist_ok=True)
         return symbol_dir / f"{endpoint}.json"
 
+    def _get_market_file_path(self, endpoint: str) -> Path:
+        """Get the file path for a market-wide (non-symbol-specific) cached endpoint."""
+        market_dir = self.cache_dir / "_market"
+        market_dir.mkdir(exist_ok=True)
+        return market_dir / f"{endpoint}.json"
+
+    def _read_market_cache(self, endpoint: str) -> Optional[Dict]:
+        """Read market-wide cached data from file."""
+        file_path = self._get_market_file_path(endpoint)
+
+        if not file_path.exists():
+            return None
+
+        try:
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
+
+    def _write_market_cache(self, endpoint: str, data: Any) -> None:
+        """Write market-wide data to cache file."""
+        file_path = self._get_market_file_path(endpoint)
+
+        cache_entry = {
+            "endpoint": endpoint,
+            "fetched_at": datetime.now().isoformat(),
+            "ttl_days": self.TTL_DAYS.get(endpoint, 1),
+            "data": data
+        }
+
+        with open(file_path, 'w') as f:
+            json.dump(cache_entry, f, indent=2, default=str)
+
+    def _get_ttl_days(self, endpoint: str) -> float:
+        """Get TTL days for an endpoint, handling dynamic endpoint names."""
+        # Handle dynamic price_history endpoints (e.g., price_history_30d)
+        if endpoint.startswith("price_history_"):
+            return self.TTL_DAYS.get("price_history", 1)
+        # Handle dynamic market_earnings_calendar endpoints (e.g., market_earnings_calendar_7d)
+        if endpoint.startswith("market_earnings_calendar_"):
+            return self.TTL_DAYS.get("market_earnings_calendar", 0.25)
+        return self.TTL_DAYS.get(endpoint, 1)
+
     def _is_fresh(self, cached_data: Dict, endpoint: str) -> bool:
         """Check if cached data is still fresh based on TTL."""
         if not cached_data:
@@ -91,7 +137,7 @@ class FMPCache:
             return False
 
         fetched_time = datetime.fromisoformat(fetched_at)
-        ttl_days = self.TTL_DAYS.get(endpoint, 1)
+        ttl_days = self._get_ttl_days(endpoint)
         expires_at = fetched_time + timedelta(days=ttl_days)
 
         return datetime.now() < expires_at
@@ -117,7 +163,7 @@ class FMPCache:
             "symbol": symbol.upper(),
             "endpoint": endpoint,
             "fetched_at": datetime.now().isoformat(),
-            "ttl_days": self.TTL_DAYS.get(endpoint, 1),
+            "ttl_days": self._get_ttl_days(endpoint),
             "data": data
         }
 
@@ -222,7 +268,66 @@ class FMPCache:
         if fetcher:
             return await fetcher()
 
+        # Handle dynamic price_history endpoints (e.g., price_history_30d, price_history_365d)
+        if endpoint.startswith("price_history_"):
+            return await self.fmp.get_historical_prices(
+                symbol,
+                from_date=kwargs.get("from_date"),
+                to_date=kwargs.get("to_date")
+            )
+
         raise ValueError(f"Unknown endpoint: {endpoint}")
+
+    async def get_market_data(self, endpoint: str, force_refresh: bool = False, **kwargs) -> Any:
+        """
+        Get market-wide data from cache or fetch from API.
+
+        Args:
+            endpoint: The endpoint name (e.g., 'market_earnings_calendar')
+            force_refresh: If True, bypass cache and fetch fresh data
+            **kwargs: Additional arguments for the API call
+
+        Returns:
+            The data (from cache or API)
+        """
+        # Check cache first (unless force refresh)
+        cached = None
+        if not force_refresh:
+            cached = self._read_market_cache(endpoint)
+            if cached and self._is_fresh(cached, endpoint):
+                print(f"[CACHE HIT] _market/{endpoint}")
+                return cached["data"]
+
+        # Cache miss or stale - fetch from API
+        print(f"[CACHE MISS] _market/{endpoint} - fetching from API")
+        try:
+            data = await self._fetch_market_from_api(endpoint, **kwargs)
+
+            # Save to cache (only if we got valid data)
+            if data is not None and not (isinstance(data, dict) and "Error" in str(data)):
+                self._write_market_cache(endpoint, data)
+
+            return data
+        except Exception as e:
+            print(f"[CACHE ERROR] _market/{endpoint} - {e}")
+            # Return stale cache if available, otherwise None
+            if cached:
+                print(f"[CACHE STALE] Using stale data for _market/{endpoint}")
+                return cached["data"]
+            return None
+
+    async def _fetch_market_from_api(self, endpoint: str, **kwargs) -> Any:
+        """Fetch market-wide data from FMP API based on endpoint type."""
+
+        # Handle dynamic market_earnings_calendar endpoints (e.g., market_earnings_calendar_7d)
+        if endpoint.startswith("market_earnings_calendar"):
+            return await self.fmp.get_market_earnings_calendar(
+                from_date=kwargs.get("from_date"),
+                to_date=kwargs.get("to_date"),
+                fmp_cache=self
+            )
+
+        raise ValueError(f"Unknown market endpoint: {endpoint}")
 
     def get_cache_status(self, symbol: str) -> Dict[str, Any]:
         """Get cache status for a symbol - useful for debugging."""

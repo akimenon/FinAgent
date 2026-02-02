@@ -15,6 +15,7 @@ export const companiesApi = {
   getCompany: (symbol) => api.get(`/companies/${symbol}`),
   getProfile: (symbol) => api.get(`/companies/${symbol}/profile`),
   getMarketMovers: () => api.get('/companies/market-movers'),
+  getMarketIndices: () => api.get('/companies/market-indices'),
   getSectorStocks: (sector) => api.get(`/companies/sectors/${sector}`),
 }
 
@@ -34,6 +35,8 @@ export const financialsApi = {
   getDeepInsights: (symbol, refresh = false) =>
     api.get(`/financials/${symbol}/deep-insights`, { params: { refresh } }),
   getAnalystRatings: (symbol) => api.get(`/financials/${symbol}/analyst-ratings`),
+  getEarningsCalendar: (days = 7) =>
+    api.get('/financials/earnings-calendar', { params: { days } }),
 }
 
 // Agent API

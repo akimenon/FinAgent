@@ -129,7 +129,7 @@ export default function CompanyAnalysis() {
   const [overviewError, setOverviewError] = useState(null)
 
   // Expanded sections
-  const [activeSection, setActiveSection] = useState(null)
+  const [activeSection, setActiveSection] = useState('price') // Chart open by default
   const [sectionData, setSectionData] = useState({})
   const [sectionLoading, setSectionLoading] = useState({})
 
@@ -141,15 +141,32 @@ export default function CompanyAnalysis() {
   // Revenue Drivers view mode
   const [revenueView, setRevenueView] = useState('quarterly') // 'quarterly', 'annual', '4q'
 
+  // Price chart period
+  const [chartPeriod, setChartPeriod] = useState('1y')
+
   // Market Feed (news, insider, senate trades)
   const [marketFeed, setMarketFeed] = useState(null)
   const [marketFeedLoading, setMarketFeedLoading] = useState(false)
 
-  // Load overview on mount
+  // Load overview and chart on mount
   useEffect(() => {
     loadOverview()
     loadMarketFeed()
+    loadPriceChart()
   }, [symbol])
+
+  // Load price chart data
+  const loadPriceChart = async () => {
+    setSectionLoading(prev => ({ ...prev, price: true }))
+    try {
+      const pRes = await financialsApi.getPriceHistory(symbol, chartPeriod)
+      setSectionData(prev => ({ ...prev, price: pRes.data.prices }))
+    } catch (err) {
+      console.error('Failed to load price chart:', err)
+    } finally {
+      setSectionLoading(prev => ({ ...prev, price: false }))
+    }
+  }
 
   const loadMarketFeed = async () => {
     setMarketFeedLoading(true)
@@ -185,17 +202,46 @@ export default function CompanyAnalysis() {
 
     setActiveSection(section)
 
-    if (sectionData[section]) return // Already loaded
+    // Check if we already have data for this period
+    const cacheKey = `${section}_${chartPeriod}`
+    if (sectionData[cacheKey]) {
+      setSectionData(prev => ({ ...prev, [section]: prev[cacheKey] }))
+      return
+    }
 
     setSectionLoading(prev => ({ ...prev, [section]: true }))
 
     try {
-      const pRes = await financialsApi.getPriceHistory(symbol, '1y')
-      setSectionData(prev => ({ ...prev, [section]: pRes.data.prices }))
+      const pRes = await financialsApi.getPriceHistory(symbol, chartPeriod)
+      setSectionData(prev => ({
+        ...prev,
+        [section]: pRes.data.prices,
+        [cacheKey]: pRes.data.prices // Cache by period too
+      }))
     } catch (err) {
       console.error(`Failed to load ${section}:`, err)
     } finally {
       setSectionLoading(prev => ({ ...prev, [section]: false }))
+    }
+  }
+
+  // Handle chart period change
+  const handlePeriodChange = async (newPeriod) => {
+    if (newPeriod === chartPeriod) return
+
+    setChartPeriod(newPeriod)
+    setSectionLoading(prev => ({ ...prev, price: true }))
+
+    try {
+      const pRes = await financialsApi.getPriceHistory(symbol, newPeriod)
+      setSectionData(prev => ({
+        ...prev,
+        price: pRes.data.prices
+      }))
+    } catch (err) {
+      console.error('Failed to load price data:', err)
+    } finally {
+      setSectionLoading(prev => ({ ...prev, price: false }))
     }
   }
 
@@ -369,7 +415,13 @@ export default function CompanyAnalysis() {
       {/* Price Chart - Expanded below Quick Stats */}
       {activeSection === 'price' && sectionData.price && (
         <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-          <PriceChart data={sectionData.price} />
+          <PriceChart
+            key={`${chartPeriod}-${sectionData.price?.length}`}
+            data={sectionData.price}
+            period={chartPeriod}
+            onPeriodChange={handlePeriodChange}
+            loading={sectionLoading.price}
+          />
         </div>
       )}
 

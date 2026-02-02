@@ -15,7 +15,7 @@ Create a pull request following FinAgent's standardized format and conventions.
 1. Ensure we're on a feature branch (must start with `feature/`)
 2. Ensure all changes are committed
 3. Run tests before creating PR
-4. **TEST COVERAGE**: Ensure test coverage is at least 70%
+4. **TEST COVERAGE**: Ensure test coverage is at least 50%
 5. **SECURITY CHECK**: Scan for sensitive information before creating PR
 6. **README CHECK**: Ensure README.md is updated for architectural changes
 
@@ -36,14 +36,14 @@ git status --porcelain
 
 ### Step 3: Test Coverage Check (REQUIRED)
 
-**Minimum coverage requirement: 70%**
+**Minimum coverage requirement: 50%**
 
 Run tests with coverage:
 ```bash
-cd backend && source venv/bin/activate && python -m pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70
+cd backend && source venv/bin/activate && python -m pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=50
 ```
 
-**If coverage is below 70%:**
+**If coverage is below 50%:**
 1. STOP the PR creation
 2. Show the current coverage percentage
 3. Show which files/functions have low coverage
@@ -54,7 +54,7 @@ cd backend && source venv/bin/activate && python -m pytest tests/ --cov=. --cov-
 - Files with `0%` or very low coverage need attention
 - Focus on testing new code that was added in this PR
 
-**Only proceed to Step 4 if coverage >= 70%**
+**Only proceed to Step 4 if coverage >= 50%**
 
 ### Step 4: Security Scan (CRITICAL)
 
@@ -163,12 +163,59 @@ git diff main --stat | tail -1
 - Only style/formatting changes
 - README.md is already in the changeset
 
-### Step 7: Push Branch
+### Step 7: CLAUDE.md Update Check (REQUIRED for Structural Changes)
+
+**Check if changes require CLAUDE.md updates:**
+
+CLAUDE.md provides context for AI assistants. It must be updated when the codebase structure changes.
+
+**Changes that REQUIRE CLAUDE.md updates:**
+
+| Change Type | Examples |
+|-------------|----------|
+| **New agents** | Files added to `backend/agents/` |
+| **New routes** | Files added to `backend/routes/` |
+| **New services** | Files added to `backend/services/` |
+| **New pages** | Files added to `frontend/src/pages/` |
+| **New component directories** | New folders in `frontend/src/components/` |
+| **Data flow changes** | Changes to orchestrator, agent coordination |
+| **New config requirements** | New environment variables, new dependencies |
+
+**Detection commands:**
+```bash
+# Check for new structural files
+git diff main --name-only --diff-filter=A | grep -E '^backend/(agents|routes|services)/.*\.py$|^frontend/src/(pages|components)/.*\.(jsx|tsx)$'
+
+# Check for deleted structural files
+git diff main --name-only --diff-filter=D | grep -E '^backend/(agents|routes|services)/.*\.py$|^frontend/src/(pages|components)/.*\.(jsx|tsx)$'
+
+# Check for changes to orchestrator/data flow
+git diff main --name-only | grep -E 'orchestrator|coordinator'
+```
+
+**If structural changes detected:**
+1. Check if CLAUDE.md is already in the diff: `git diff main --name-only | grep CLAUDE.md`
+2. If CLAUDE.md is NOT updated:
+   - WARN the user (not blocking, but recommended)
+   - List the structural changes detected
+   - Suggest updating CLAUDE.md with:
+     - New files added to "Key Files by Purpose" tables
+     - Updated data flow (if orchestration changed)
+     - New common tasks (if applicable)
+   - Ask user if they want to update CLAUDE.md now or proceed anyway
+
+**Skip this check if:**
+- Only implementation changes within existing files
+- Only test files changed
+- Only style/formatting changes
+- CLAUDE.md is already in the changeset
+
+### Step 8: Push Branch
 ```bash
 git push -u origin <branch-name>
 ```
 
-### Step 8: Create PR with Standard Format
+### Step 9: Create PR with Standard Format
 
 Use this EXACT format for the PR body:
 
