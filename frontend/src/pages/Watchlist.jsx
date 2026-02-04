@@ -70,11 +70,7 @@ export default function Watchlist() {
   const toggleIndustry = (industry) => {
     setCollapsedIndustries(prev => {
       const next = new Set(prev)
-      if (next.has(industry)) {
-        next.delete(industry)
-      } else {
-        next.add(industry)
-      }
+      next.has(industry) ? next.delete(industry) : next.add(industry)
       return next
     })
   }
@@ -170,13 +166,8 @@ export default function Watchlist() {
       {/* 1D Change */}
       <td className="px-4 py-4 text-right">
         <div className={`flex items-center justify-end gap-1 ${getPercentColor(item.changePercent)}`}>
-          {item.changePercent !== null && item.changePercent !== undefined && (
-            item.changePercent >= 0 ? (
-              <TrendingUp className="w-3 h-3" />
-            ) : (
-              <TrendingDown className="w-3 h-3" />
-            )
-          )}
+          {item.changePercent != null && item.changePercent >= 0 && <TrendingUp className="w-3 h-3" />}
+          {item.changePercent != null && item.changePercent < 0 && <TrendingDown className="w-3 h-3" />}
           <span>{formatPercent(item.changePercent)}</span>
         </div>
       </td>

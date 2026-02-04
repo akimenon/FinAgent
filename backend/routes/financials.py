@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from typing import Optional
 from datetime import datetime, timedelta
 import asyncio
+
 from services.fmp_service import fmp_service
 from services.fmp_cache import fmp_cache
 from services.insights_cache import insights_cache
@@ -10,6 +10,7 @@ from agents.data_fetcher import DataFetcherAgent
 from agents.analysis_agent import AnalysisAgent
 from agents.guidance_tracker import GuidanceTrackerAgent
 from agents.deep_insights_agent import deep_insights_agent
+from utils import safe_float, safe_int, find_price_near_date, calc_pct_change
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
 
@@ -86,24 +87,9 @@ analyzer = AnalysisAgent()
 guidance_tracker = GuidanceTrackerAgent()
 
 
-def _safe_float(value, default=0):
-    """Safely convert a value to float, handling None and strings."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return default
-
-
-def _safe_int(value, default=0):
-    """Safely convert a value to int, handling None and strings."""
-    if value is None:
-        return default
-    try:
-        return int(float(value))
-    except (ValueError, TypeError):
-        return default
+# Alias imported utils with underscore prefix for consistency with existing code
+_safe_float = safe_float
+_safe_int = safe_int
 
 
 @router.get("/{symbol}/deep-insights")
@@ -394,29 +380,6 @@ async def get_quick_overview(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _find_price_near_date(prices: list, target_date, tolerance_days: int = 7):
-    """Find closing price for trading day closest to target_date."""
-    target_dt = target_date.date() if hasattr(target_date, 'date') else target_date
-    best_match = None
-    best_diff = float('inf')
-
-    for record in prices:
-        date_str = record.get("date", "")
-        if not date_str:
-            continue
-        try:
-            record_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            diff = abs((record_date - target_dt).days)
-            if diff <= tolerance_days and diff < best_diff:
-                best_diff = diff
-                best_match = record.get("close") or record.get("adjClose")
-                if diff == 0:
-                    break
-        except ValueError:
-            continue
-    return best_match
-
-
 async def _calculate_price_changes(symbol: str) -> dict:
     """Calculate MoM and YoY price changes using historical data."""
     today = datetime.now()
@@ -441,8 +404,8 @@ async def _calculate_price_changes(symbol: str) -> dict:
             return {"momChangePercent": None, "yoyChangePercent": None}
 
         current_price = _safe_float(prices[0].get("close") or prices[0].get("adjClose"), None)
-        mom_price = _safe_float(_find_price_near_date(prices, one_month_ago), None)
-        yoy_price = _safe_float(_find_price_near_date(prices, one_year_ago), None)
+        mom_price = _safe_float(find_price_near_date(prices, one_month_ago), None)
+        yoy_price = _safe_float(find_price_near_date(prices, one_year_ago), None)
 
         result = {"momChangePercent": None, "yoyChangePercent": None}
 
@@ -729,11 +692,11 @@ def _process_quarterly_comparison(income_data: list, balance_data: list = None,
             yoy_comparison = {
                 "currentPeriod": current["period"],
                 "previousPeriod": year_ago["period"],
-                "revenueChange": _calc_pct_change(current["revenue"], year_ago["revenue"]),
-                "grossProfitChange": _calc_pct_change(current["grossProfit"], year_ago["grossProfit"]),
-                "operatingIncomeChange": _calc_pct_change(current["operatingIncome"], year_ago["operatingIncome"]),
-                "netIncomeChange": _calc_pct_change(current["netIncome"], year_ago["netIncome"]),
-                "epsChange": _calc_pct_change(current["eps"], year_ago["eps"]),
+                "revenueChange": calc_pct_change(current["revenue"], year_ago["revenue"]),
+                "grossProfitChange": calc_pct_change(current["grossProfit"], year_ago["grossProfit"]),
+                "operatingIncomeChange": calc_pct_change(current["operatingIncome"], year_ago["operatingIncome"]),
+                "netIncomeChange": calc_pct_change(current["netIncome"], year_ago["netIncome"]),
+                "epsChange": calc_pct_change(current["eps"], year_ago["eps"]),
                 "marginChange": round(current["netMargin"] - year_ago["netMargin"], 2) if year_ago["netMargin"] else None,
             }
 
@@ -744,13 +707,7 @@ def _process_quarterly_comparison(income_data: list, balance_data: list = None,
     }
 
 
-def _calc_pct_change(current, previous):
-    """Calculate percentage change between two values."""
-    current = _safe_float(current, None)
-    previous = _safe_float(previous, None)
-    if current is None or previous is None or previous == 0:
-        return None
-    return round(((current - previous) / abs(previous)) * 100, 2)
+# Use calc_pct_change from utils module
 
 
 def _generate_smart_insights(quarterly_comparison: dict, balance_sheet: dict, cash_flow: dict, earnings: dict, profile: dict) -> dict:

@@ -53,15 +53,9 @@ class WatchlistService:
             json.dump(watchlist, f, indent=2, default=str)
 
     def get_all(self) -> List[Dict[str, Any]]:
-        """Get all watchlist items."""
+        """Get all watchlist items sorted by addedAt descending."""
         watchlist = self._load_watchlist()
-        items = []
-        for symbol, data in watchlist.items():
-            items.append({
-                "symbol": symbol,
-                **data
-            })
-        # Sort by addedAt descending (most recent first)
+        items = [{"symbol": symbol, **data} for symbol, data in watchlist.items()]
         items.sort(key=lambda x: x.get("addedAt", ""), reverse=True)
         return items
 

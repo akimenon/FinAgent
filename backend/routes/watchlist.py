@@ -11,6 +11,7 @@ import asyncio
 
 from services.watchlist_service import watchlist_service
 from services.fmp_cache import fmp_cache
+from utils import safe_float, find_price_near_date
 
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -22,16 +23,6 @@ class AddToWatchlistRequest(BaseModel):
 
 class UpdateNotesRequest(BaseModel):
     notes: str
-
-
-def _safe_float(value, default=None):
-    """Safely convert a value to float."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return default
 
 
 @router.get("")
@@ -122,9 +113,9 @@ async def _calculate_price_changes(symbol: str) -> dict:
         if not prices:
             return {"momChangePercent": None, "yoyChangePercent": None}
 
-        current_price = _safe_float(prices[0].get("close") or prices[0].get("adjClose"), None)
-        mom_price = _safe_float(_find_price_near_date(prices, one_month_ago), None)
-        yoy_price = _safe_float(_find_price_near_date(prices, one_year_ago), None)
+        current_price = safe_float(prices[0].get("close") or prices[0].get("adjClose"), None)
+        mom_price = safe_float(find_price_near_date(prices, one_month_ago), None)
+        yoy_price = safe_float(find_price_near_date(prices, one_year_ago), None)
 
         result = {"momChangePercent": None, "yoyChangePercent": None}
 
@@ -138,31 +129,6 @@ async def _calculate_price_changes(symbol: str) -> dict:
     except Exception as e:
         print(f"Error calculating price changes for {symbol}: {e}")
         return {"momChangePercent": None, "yoyChangePercent": None}
-
-
-def _find_price_near_date(prices: list, target_date, tolerance_days: int = 7):
-    """Find closing price for trading day closest to target_date."""
-    from datetime import datetime
-
-    target_dt = target_date.date() if hasattr(target_date, 'date') else target_date
-    best_match = None
-    best_diff = float('inf')
-
-    for record in prices:
-        date_str = record.get("date", "")
-        if not date_str:
-            continue
-        try:
-            record_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            diff = abs((record_date - target_dt).days)
-            if diff <= tolerance_days and diff < best_diff:
-                best_diff = diff
-                best_match = record.get("close") or record.get("adjClose")
-                if diff == 0:
-                    break
-        except ValueError:
-            continue
-    return best_match
 
 
 @router.get("/{symbol}")

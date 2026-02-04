@@ -50,6 +50,31 @@ const formatPercent = (num) => {
   return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`
 }
 
+// Get color class for positive/negative values
+const getChangeColor = (value, opacity = '') => {
+  if (value == null) return 'text-slate-400'
+  const suffix = opacity ? `/${opacity}` : ''
+  return value >= 0 ? `text-emerald-400${suffix}` : `text-red-400${suffix}`
+}
+
+// Get color class for analyst consensus rating
+const getConsensusColor = (rating) => {
+  const colors = {
+    'Strong Buy': 'text-teal-400',
+    'Buy': 'text-emerald-400',
+    'Hold': 'text-yellow-400',
+    'Sell': 'text-orange-400',
+    'Strong Sell': 'text-red-400',
+  }
+  return colors[rating] || 'text-slate-400'
+}
+
+// Format a price change with sign prefix
+const formatPriceChange = (value, decimals = 1) => {
+  if (value == null) return 'N/A'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(decimals)}%`
+}
+
 // Helper component for metric rows in 4Q comparison table
 const MetricRow = ({ label, quarters, field, format, color, colorCode }) => {
   const formatValue = (val) => {
@@ -449,21 +474,13 @@ export default function CompanyAnalysis() {
 
           {/* MoM and YoY Changes */}
           <div className="flex items-center justify-end gap-3 mt-1 text-sm">
-            <div className={`flex items-center gap-1 ${
-              price.momChangePercent >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'
-            }`}>
+            <div className={`flex items-center gap-1 ${getChangeColor(price.momChangePercent, '80')}`}>
               <span className="text-slate-500">1M:</span>
-              <span>{price.momChangePercent !== null && price.momChangePercent !== undefined
-                ? `${price.momChangePercent >= 0 ? '+' : ''}${price.momChangePercent?.toFixed(1)}%`
-                : 'N/A'}</span>
+              <span>{formatPriceChange(price.momChangePercent)}</span>
             </div>
-            <div className={`flex items-center gap-1 ${
-              price.yoyChangePercent >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'
-            }`}>
+            <div className={`flex items-center gap-1 ${getChangeColor(price.yoyChangePercent, '80')}`}>
               <span className="text-slate-500">1Y:</span>
-              <span>{price.yoyChangePercent !== null && price.yoyChangePercent !== undefined
-                ? `${price.yoyChangePercent >= 0 ? '+' : ''}${price.yoyChangePercent?.toFixed(1)}%`
-                : 'N/A'}</span>
+              <span>{formatPriceChange(price.yoyChangePercent)}</span>
             </div>
           </div>
         </div>
@@ -550,13 +567,7 @@ export default function CompanyAnalysis() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400 text-sm">Consensus</span>
-                  <span className={`text-lg font-bold ${
-                    analystRatings.consensus.rating === 'Strong Buy' ? 'text-teal-400' :
-                    analystRatings.consensus.rating === 'Buy' ? 'text-emerald-400' :
-                    analystRatings.consensus.rating === 'Hold' ? 'text-yellow-400' :
-                    analystRatings.consensus.rating === 'Sell' ? 'text-orange-400' :
-                    'text-red-400'
-                  }`}>
+                  <span className={`text-lg font-bold ${getConsensusColor(analystRatings.consensus.rating)}`}>
                     {analystRatings.consensus.rating}
                   </span>
                 </div>
