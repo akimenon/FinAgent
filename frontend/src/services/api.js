@@ -37,6 +37,19 @@ export const financialsApi = {
   getAnalystRatings: (symbol) => api.get(`/financials/${symbol}/analyst-ratings`),
   getEarningsCalendar: (days = 7) =>
     api.get('/financials/earnings-calendar', { params: { days } }),
+  clearCache: (symbol) => api.delete(`/financials/${symbol}/cache`),
+}
+
+// Watchlist API
+export const watchlistApi = {
+  getAll: (includePrices = true) =>
+    api.get('/watchlist', { params: { include_prices: includePrices } }),
+  getStatus: (symbol) => api.get(`/watchlist/${symbol}/status`),
+  add: (symbol, notes = null) =>
+    api.post(`/watchlist/${symbol}`, notes ? { notes } : {}),
+  remove: (symbol) => api.delete(`/watchlist/${symbol}`),
+  updateNotes: (symbol, notes) =>
+    api.patch(`/watchlist/${symbol}/notes`, { notes }),
 }
 
 // Agent API

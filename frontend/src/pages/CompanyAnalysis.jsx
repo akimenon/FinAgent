@@ -29,8 +29,9 @@ import {
   Landmark,
   Shield,
   Star,
+  RefreshCw,
 } from 'lucide-react'
-import { financialsApi } from '../services/api'
+import { financialsApi, watchlistApi } from '../services/api'
 import PriceChart from '../components/charts/PriceChart'
 
 // Format large numbers
@@ -47,6 +48,31 @@ const formatNumber = (num, decimals = 1) => {
 const formatPercent = (num) => {
   if (!num && num !== 0) return 'N/A'
   return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`
+}
+
+// Get color class for positive/negative values
+const getChangeColor = (value, opacity = '') => {
+  if (value == null) return 'text-slate-400'
+  const suffix = opacity ? `/${opacity}` : ''
+  return value >= 0 ? `text-emerald-400${suffix}` : `text-red-400${suffix}`
+}
+
+// Get color class for analyst consensus rating
+const getConsensusColor = (rating) => {
+  const colors = {
+    'Strong Buy': 'text-teal-400',
+    'Buy': 'text-emerald-400',
+    'Hold': 'text-yellow-400',
+    'Sell': 'text-orange-400',
+    'Strong Sell': 'text-red-400',
+  }
+  return colors[rating] || 'text-slate-400'
+}
+
+// Format a price change with sign prefix
+const formatPriceChange = (value, decimals = 1) => {
+  if (value == null) return 'N/A'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(decimals)}%`
 }
 
 // Helper component for metric rows in 4Q comparison table
@@ -148,12 +174,54 @@ export default function CompanyAnalysis() {
   const [marketFeed, setMarketFeed] = useState(null)
   const [marketFeedLoading, setMarketFeedLoading] = useState(false)
 
+  // Refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // Watchlist state
+  const [inWatchlist, setInWatchlist] = useState(false)
+  const [watchlistLoading, setWatchlistLoading] = useState(false)
+
+  // Image error state
+  const [imageError, setImageError] = useState(false)
+
   // Load overview and chart on mount
   useEffect(() => {
+    setImageError(false) // Reset image error on symbol change
     loadOverview()
     loadMarketFeed()
     loadPriceChart()
+    checkWatchlistStatus()
   }, [symbol])
+
+  // Check if stock is in watchlist
+  const checkWatchlistStatus = async () => {
+    try {
+      const response = await watchlistApi.getStatus(symbol)
+      setInWatchlist(response.data.inWatchlist)
+    } catch (err) {
+      console.error('Failed to check watchlist status:', err)
+    }
+  }
+
+  // Toggle watchlist status
+  const toggleWatchlist = async () => {
+    if (watchlistLoading) return
+
+    setWatchlistLoading(true)
+    try {
+      if (inWatchlist) {
+        await watchlistApi.remove(symbol)
+        setInWatchlist(false)
+      } else {
+        await watchlistApi.add(symbol)
+        setInWatchlist(true)
+      }
+    } catch (err) {
+      console.error('Failed to toggle watchlist:', err)
+    } finally {
+      setWatchlistLoading(false)
+    }
+  }
 
   // Load price chart data
   const loadPriceChart = async () => {
@@ -190,6 +258,35 @@ export default function CompanyAnalysis() {
       setOverviewError(err.response?.data?.detail || 'Failed to load data')
     } finally {
       setOverviewLoading(false)
+    }
+  }
+
+  // Refresh all data by clearing cache and reloading
+  const handleRefresh = async () => {
+    if (isRefreshing) return
+
+    setIsRefreshing(true)
+    try {
+      // Clear all cache for this symbol
+      await financialsApi.clearCache(symbol)
+
+      // Reset deep insights state
+      setDeepInsights(null)
+      setDeepInsightsExpanded(false)
+
+      // Reset section data
+      setSectionData({})
+
+      // Reload all data
+      await Promise.all([
+        loadOverview(),
+        loadMarketFeed(),
+        loadPriceChart()
+      ])
+    } catch (err) {
+      console.error('Failed to refresh data:', err)
+    } finally {
+      setIsRefreshing(false)
     }
   }
 
@@ -308,15 +405,49 @@ export default function CompanyAnalysis() {
           <button
             onClick={() => navigate('/')}
             className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+            title="Back to Dashboard"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing || overviewLoading}
+            className={`p-2 hover:bg-slate-800 rounded-lg transition-colors ${
+              isRefreshing ? 'opacity-50 cursor-wait' : ''
+            }`}
+            title="Refresh all data (clears cache)"
+          >
+            <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
           <div className="flex items-center gap-3">
-            {profile.image && (
-              <img src={profile.image} alt={symbol} className="w-12 h-12 rounded-lg" />
+            {profile.image && !imageError ? (
+              <img
+                src={profile.image}
+                alt={symbol}
+                className="w-12 h-12 rounded-lg object-contain bg-white p-1"
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-slate-700 flex items-center justify-center text-slate-400 text-lg font-bold">
+                {symbol?.slice(0, 2)}
+              </div>
             )}
             <div>
-              <h1 className="text-2xl font-bold">{profile.name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold">{profile.name}</h1>
+                <button
+                  onClick={toggleWatchlist}
+                  disabled={watchlistLoading}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    inWatchlist
+                      ? 'text-yellow-500 hover:bg-yellow-500/20'
+                      : 'text-slate-400 hover:bg-slate-700 hover:text-yellow-500'
+                  } ${watchlistLoading ? 'opacity-50 cursor-wait' : ''}`}
+                  title={inWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
+                >
+                  <Star className={`w-5 h-5 ${inWatchlist ? 'fill-yellow-500' : ''}`} />
+                </button>
+              </div>
               <div className="flex items-center gap-2 text-slate-400">
                 <span>{symbol}</span>
                 <span>•</span>
@@ -343,21 +474,13 @@ export default function CompanyAnalysis() {
 
           {/* MoM and YoY Changes */}
           <div className="flex items-center justify-end gap-3 mt-1 text-sm">
-            <div className={`flex items-center gap-1 ${
-              price.momChangePercent >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'
-            }`}>
+            <div className={`flex items-center gap-1 ${getChangeColor(price.momChangePercent, '80')}`}>
               <span className="text-slate-500">1M:</span>
-              <span>{price.momChangePercent !== null && price.momChangePercent !== undefined
-                ? `${price.momChangePercent >= 0 ? '+' : ''}${price.momChangePercent?.toFixed(1)}%`
-                : 'N/A'}</span>
+              <span>{formatPriceChange(price.momChangePercent)}</span>
             </div>
-            <div className={`flex items-center gap-1 ${
-              price.yoyChangePercent >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'
-            }`}>
+            <div className={`flex items-center gap-1 ${getChangeColor(price.yoyChangePercent, '80')}`}>
               <span className="text-slate-500">1Y:</span>
-              <span>{price.yoyChangePercent !== null && price.yoyChangePercent !== undefined
-                ? `${price.yoyChangePercent >= 0 ? '+' : ''}${price.yoyChangePercent?.toFixed(1)}%`
-                : 'N/A'}</span>
+              <span>{formatPriceChange(price.yoyChangePercent)}</span>
             </div>
           </div>
         </div>
@@ -444,13 +567,7 @@ export default function CompanyAnalysis() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400 text-sm">Consensus</span>
-                  <span className={`text-lg font-bold ${
-                    analystRatings.consensus.rating === 'Strong Buy' ? 'text-teal-400' :
-                    analystRatings.consensus.rating === 'Buy' ? 'text-emerald-400' :
-                    analystRatings.consensus.rating === 'Hold' ? 'text-yellow-400' :
-                    analystRatings.consensus.rating === 'Sell' ? 'text-orange-400' :
-                    'text-red-400'
-                  }`}>
+                  <span className={`text-lg font-bold ${getConsensusColor(analystRatings.consensus.rating)}`}>
                     {analystRatings.consensus.rating}
                   </span>
                 </div>
@@ -991,10 +1108,22 @@ export default function CompanyAnalysis() {
 
       {/* Latest Quarter Section */}
       <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-blue-500" />
-          Latest Quarter ({latestQuarter.period})
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-blue-500" />
+            Latest Quarter ({latestQuarter.period})
+          </h2>
+          {latestQuarter.reportedDate && (
+            <span className="text-sm text-slate-400 flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5" />
+              Reported: {new Date(latestQuarter.reportedDate).toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
+              })}
+            </span>
+          )}
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <MetricCard

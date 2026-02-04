@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { TrendingUp, TrendingDown, LayoutDashboard } from 'lucide-react'
+import { TrendingUp, TrendingDown, LayoutDashboard, Star } from 'lucide-react'
 import { companiesApi } from '../../services/api'
 
 // Category colors for visual distinction
@@ -85,13 +85,20 @@ export default function NavBar() {
             </div>
           </div>
 
-          <div className="flex items-center flex-shrink-0">
+          <div className="flex items-center flex-shrink-0 gap-1">
             <Link
               to="/"
               className="flex items-center space-x-1 px-3 py-2 rounded-md hover:bg-slate-700 transition-colors"
             >
               <LayoutDashboard className="h-4 w-4" />
               <span className="hidden sm:inline">Dashboard</span>
+            </Link>
+            <Link
+              to="/watchlist"
+              className="flex items-center space-x-1 px-3 py-2 rounded-md hover:bg-slate-700 transition-colors text-yellow-500"
+            >
+              <Star className="h-4 w-4" />
+              <span className="hidden sm:inline">Watchlist</span>
             </Link>
           </div>
         </div>
