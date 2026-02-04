@@ -348,6 +348,7 @@ async def get_quick_overview(symbol: str):
             "latestQuarter": {
                 "period": f"{latest_income.get('period', 'Q?')} {latest_income.get('fiscalYear', '')}".strip(),
                 "date": latest_income.get("date"),
+                "reportedDate": latest_income.get("acceptedDate"),  # SEC filing accepted date
                 "revenue": revenue,
                 "netIncome": net_income,
                 "grossProfit": gross_profit,
@@ -379,6 +380,7 @@ async def get_quick_overview(symbol: str):
                 "estimatedEps": latest_earnings.get("epsEstimated"),
                 "surprise": round((latest_earnings.get("epsActual", 0) or 0) - (latest_earnings.get("epsEstimated", 0) or 0), 4) if latest_earnings else None,
                 "beat": (latest_earnings.get("epsActual", 0) or 0) > (latest_earnings.get("epsEstimated", 0) or 0) if latest_earnings else None,
+                "announcementDate": latest_earnings.get("date"),  # Actual earnings release date
             },
             "revenuePillars": _process_revenue_pillars(product_seg, geo_seg),
             "nextEarnings": _get_next_earnings(earnings_calendar, earnings),
@@ -1139,9 +1141,17 @@ async def get_cache_status(symbol: str):
 async def clear_symbol_cache(symbol: str):
     """
     Clear all cached data for a symbol to force fresh API calls.
+    Clears both FMP API cache and LLM insights cache.
     """
-    fmp_cache.clear_cache(symbol.upper())
-    return {"message": f"Cache cleared for {symbol.upper()}"}
+    symbol = symbol.upper()
+    fmp_cache.clear_cache(symbol)
+    insights_invalidated = insights_cache.invalidate(symbol)
+    return {
+        "message": f"All cache cleared for {symbol}",
+        "symbol": symbol,
+        "fmpCacheCleared": True,
+        "insightsCacheCleared": insights_invalidated
+    }
 
 
 @router.get("/{symbol}/market-feed")

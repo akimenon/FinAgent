@@ -3,6 +3,7 @@ import NavBar from './components/layout/NavBar'
 import Dashboard from './pages/Dashboard'
 import CompanyAnalysis from './pages/CompanyAnalysis'
 import EarningsCalendar from './pages/EarningsCalendar'
+import Watchlist from './pages/Watchlist'
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/analysis/:symbol" element={<CompanyAnalysis />} />
             <Route path="/earnings" element={<EarningsCalendar />} />
+            <Route path="/watchlist" element={<Watchlist />} />
           </Routes>
         </main>
       </div>

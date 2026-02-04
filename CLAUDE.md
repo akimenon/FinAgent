@@ -27,6 +27,7 @@ AI-powered financial analysis platform combining:
 | `financials.py` | `/api/financials/{symbol}/overview`, `/quarterly`, `/deep-insights`, `/analyst-ratings`, `/price-history` |
 | `agent_query.py` | `/api/agent/query`, `/api/agent/chat`, `/api/agent/query/stream` |
 | `companies.py` | `/api/companies/market-movers`, `/api/companies/sectors/{sector}` |
+| `watchlist.py` | `/api/watchlist`, `/api/watchlist/{symbol}`, `/api/watchlist/{symbol}/status` |
 
 **Backend Services** (`backend/services/`)
 | File | Purpose |
@@ -35,12 +36,14 @@ AI-powered financial analysis platform combining:
 | `fmp_cache.py` | File-based JSON caching with TTL |
 | `llm_service.py` | Ollama/Qwen client |
 | `insights_cache.py` | Caches LLM-generated insights |
+| `watchlist_service.py` | File-based JSON watchlist storage |
 
 **Frontend Pages** (`frontend/src/pages/`)
 | File | Purpose |
 |------|---------|
 | `Dashboard.jsx` | Home page with search, market movers, sector lists |
 | `CompanyAnalysis.jsx` | Main analysis page with charts, tables, AI insights |
+| `Watchlist.jsx` | User watchlist with industry grouping, price tracking |
 
 **Frontend Components** (`frontend/src/components/`)
 | Path | Purpose |
@@ -55,6 +58,7 @@ AI-powered financial analysis platform combining:
 - `companiesApi` - Company search and profiles
 - `financialsApi` - Financial data endpoints
 - `agentApi` - AI query endpoints (including SSE streaming)
+- `watchlistApi` - Watchlist management (add, remove, list)
 
 ---
 
