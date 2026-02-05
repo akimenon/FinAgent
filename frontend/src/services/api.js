@@ -63,7 +63,7 @@ export const portfolioApi = {
   add: (holding) => api.post('/portfolio', holding),
   update: (holdingId, data) => api.put(`/portfolio/${holdingId}`, data),
   remove: (holdingId) => api.delete(`/portfolio/${holdingId}`),
-  takeSnapshot: () => api.post('/portfolio/snapshot'),
+  takeSnapshot: (force = false) => api.post('/portfolio/snapshot', null, { params: { force } }),
   getPerformance: () => api.get('/portfolio/performance'),
   getSnapshots: (days = 90) =>
     api.get('/portfolio/snapshots', { params: { days } }),

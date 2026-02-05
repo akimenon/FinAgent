@@ -121,6 +121,8 @@ async def get_portfolio():
                     "stock": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
                     "etf": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
                     "crypto": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
+                    "custom": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
+                    "cash": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
                 },
             },
             "count": 0,
@@ -128,7 +130,9 @@ async def get_portfolio():
 
     # Separate by asset type for different price fetching
     crypto_holdings = [h for h in holdings if h.get("assetType") == "crypto"]
-    stock_etf_holdings = [h for h in holdings if h.get("assetType") != "crypto"]
+    custom_holdings = [h for h in holdings if h.get("assetType") == "custom"]
+    cash_holdings = [h for h in holdings if h.get("assetType") == "cash"]
+    stock_etf_holdings = [h for h in holdings if h.get("assetType") not in ("crypto", "custom", "cash")]
 
     # Fetch prices in parallel
     enriched_holdings = []
@@ -141,11 +145,12 @@ async def get_portfolio():
             price = profile.get("price") if profile else None
             name = profile.get("companyName") if profile else None
             image = profile.get("image") if profile else None
+            industry = profile.get("industry") if profile else None
 
-            return enrich_holding(holding, price, name, image)
+            return enrich_holding(holding, price, name, image, industry)
         except Exception as e:
             print(f"Error fetching price for {ticker}: {e}")
-            return enrich_holding(holding, None, None, None)
+            return enrich_holding(holding, None, None, None, None)
 
     # Fetch crypto prices in batch
     crypto_prices = {}
@@ -157,9 +162,9 @@ async def get_portfolio():
         ticker = holding["ticker"]
         price_data = crypto_prices.get(ticker)
         price = price_data.get("price") if price_data else None
-        return enrich_holding(holding, price, ticker, None)
+        return enrich_holding(holding, price, ticker, None, None)
 
-    def enrich_holding(holding, price, name, image):
+    def enrich_holding(holding, price, name, image, industry=None):
         """Add price and ROI calculations to a holding."""
         quantity = holding.get("quantity", 0)
         cost_basis = holding.get("costBasis", 0)
@@ -178,6 +183,7 @@ async def get_portfolio():
             **holding,
             "name": name,
             "image": image,
+            "industry": industry,
             "currentPrice": price,
             "currentValue": current_value,
             "totalCost": total_cost,
@@ -195,6 +201,16 @@ async def get_portfolio():
     # Enrich crypto holdings
     for holding in crypto_holdings:
         enriched_holdings.append(enrich_crypto_holding(holding))
+
+    # Enrich custom holdings (cost basis = current price, no external price fetch)
+    for holding in custom_holdings:
+        price = holding.get("costBasis", 0)
+        enriched_holdings.append(enrich_holding(holding, price, holding["ticker"], None))
+
+    # Enrich cash holdings (value = costBasis, no price fetch)
+    for holding in cash_holdings:
+        amount = holding.get("costBasis", 0)
+        enriched_holdings.append(enrich_holding(holding, amount, "Cash", None))
 
     # Calculate summary
     summary = calculate_summary(enriched_holdings)
@@ -217,6 +233,8 @@ def calculate_summary(holdings):
             "stock": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
             "etf": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
             "crypto": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
+            "custom": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
+            "cash": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
         },
     }
 
@@ -238,9 +256,11 @@ def calculate_summary(holdings):
                 summary["byAssetType"][asset_type]["gainLoss"] += gain_loss
                 summary["totalGainLoss"] += gain_loss
 
-        summary["totalCost"] += total_cost
+        # Exclude cash from totalCost (cash is not invested capital)
+        if asset_type != "cash":
+            summary["totalCost"] += total_cost
 
-    # Calculate overall percentage
+    # Calculate return % based on invested capital (excludes cash)
     if summary["totalCost"] > 0:
         summary["totalGainLossPercent"] = (
             summary["totalGainLoss"] / summary["totalCost"] * 100
@@ -255,7 +275,7 @@ async def add_holding(request: AddHoldingRequest):
     # Validate ticker exists (for stocks/ETFs)
     asset_type = request.assetType or categorize_ticker(request.ticker)
 
-    if asset_type != "crypto":
+    if asset_type not in ("crypto", "custom", "cash"):
         # Verify stock/ETF exists via FMP
         profile = await fmp_cache.get("profile", request.ticker.upper())
         if not profile:
@@ -299,14 +319,14 @@ async def update_holding(holding_id: str, request: UpdateHoldingRequest):
 
 
 @router.post("/snapshot")
-async def take_snapshot():
+async def take_snapshot(force: bool = False):
     """
     Take a daily snapshot of portfolio value.
-    Skips if a snapshot has already been taken today.
-    Called automatically on app load.
+    Skips if a snapshot has already been taken today (unless force=True).
+    Called automatically on app load, or manually via the snapshot button.
     """
-    # Skip if already taken today
-    if portfolio_snapshot_service.has_today_snapshot():
+    # Skip if already taken today (unless forced)
+    if not force and portfolio_snapshot_service.has_today_snapshot():
         return {"message": "Snapshot already taken today", "alreadyExists": True}
 
     # Get current portfolio with prices to calculate summary
@@ -316,7 +336,9 @@ async def take_snapshot():
 
     # Fetch prices (same logic as get_portfolio)
     crypto_holdings = [h for h in holdings if h.get("assetType") == "crypto"]
-    stock_etf_holdings = [h for h in holdings if h.get("assetType") != "crypto"]
+    custom_holdings = [h for h in holdings if h.get("assetType") == "custom"]
+    cash_holdings = [h for h in holdings if h.get("assetType") == "cash"]
+    stock_etf_holdings = [h for h in holdings if h.get("assetType") not in ("crypto", "custom", "cash")]
 
     enriched_holdings = []
 
@@ -345,8 +367,16 @@ async def take_snapshot():
         price = price_data.get("price") if price_data else None
         enriched_holdings.append(_enrich_for_snapshot(holding, price))
 
+    # Custom holdings: cost basis = current price
+    for holding in custom_holdings:
+        enriched_holdings.append(_enrich_for_snapshot(holding, holding.get("costBasis", 0)))
+
+    # Cash holdings: cost basis = value
+    for holding in cash_holdings:
+        enriched_holdings.append(_enrich_for_snapshot(holding, holding.get("costBasis", 0)))
+
     summary = calculate_summary(enriched_holdings)
-    snapshot = portfolio_snapshot_service.save_snapshot(summary)
+    snapshot = portfolio_snapshot_service.save_snapshot(summary, force=force)
 
     return {"message": "Snapshot saved", **snapshot}
 

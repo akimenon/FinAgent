@@ -195,6 +195,8 @@ class PortfolioService:
                 "stock": [],
                 "etf": [],
                 "crypto": [],
+                "custom": [],
+                "cash": [],
             },
             "accounts": set(),
         }
