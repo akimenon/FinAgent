@@ -52,6 +52,23 @@ export const watchlistApi = {
     api.patch(`/watchlist/${symbol}/notes`, { notes }),
 }
 
+// Portfolio API
+export const portfolioApi = {
+  verifyPin: (pin) => api.post('/portfolio/verify-pin', { pin }),
+  setPin: (pin, currentPin = '') =>
+    api.post('/portfolio/set-pin', { pin, current_pin: currentPin }),
+  removePin: (pin) => api.delete('/portfolio/pin', { data: { pin } }),
+  getAll: () => api.get('/portfolio'),
+  get: (holdingId) => api.get(`/portfolio/${holdingId}`),
+  add: (holding) => api.post('/portfolio', holding),
+  update: (holdingId, data) => api.put(`/portfolio/${holdingId}`, data),
+  remove: (holdingId) => api.delete(`/portfolio/${holdingId}`),
+  takeSnapshot: () => api.post('/portfolio/snapshot'),
+  getPerformance: () => api.get('/portfolio/performance'),
+  getSnapshots: (days = 90) =>
+    api.get('/portfolio/snapshots', { params: { days } }),
+}
+
 // Agent API
 export const agentApi = {
   query: (symbol, query) => api.post('/agent/query', { symbol, query }),

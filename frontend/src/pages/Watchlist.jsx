@@ -11,8 +11,24 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
+  Plus,
+  X,
+  Briefcase,
 } from 'lucide-react'
-import { watchlistApi } from '../services/api'
+import { watchlistApi, portfolioApi } from '../services/api'
+
+// Account presets for dropdown
+const ACCOUNT_PRESETS = [
+  'Fidelity',
+  'Schwab',
+  'Robinhood',
+  'Coinbase',
+  'Vanguard',
+  'TD Ameritrade',
+  'E*Trade',
+  'Webull',
+  'Interactive Brokers',
+]
 
 export default function Watchlist() {
   const navigate = useNavigate()
@@ -24,6 +40,19 @@ export default function Watchlist() {
   const [failedImages, setFailedImages] = useState(new Set())
   const [groupByIndustry, setGroupByIndustry] = useState(true)
   const [collapsedIndustries, setCollapsedIndustries] = useState(new Set())
+
+  // Add to portfolio modal state
+  const [showPortfolioModal, setShowPortfolioModal] = useState(false)
+  const [portfolioFormData, setPortfolioFormData] = useState({
+    ticker: '',
+    name: '',
+    quantity: '',
+    costBasis: '',
+    accountName: '',
+    customAccount: '',
+  })
+  const [portfolioFormError, setPortfolioFormError] = useState(null)
+  const [addingToPortfolio, setAddingToPortfolio] = useState(false)
 
   useEffect(() => {
     loadWatchlist()
@@ -73,6 +102,57 @@ export default function Watchlist() {
       next.has(industry) ? next.delete(industry) : next.add(industry)
       return next
     })
+  }
+
+  // Add to portfolio handlers
+  const openPortfolioModal = (item, e) => {
+    e.stopPropagation()
+    setPortfolioFormData({
+      ticker: item.symbol,
+      name: item.name || item.symbol,
+      quantity: '',
+      costBasis: item.price?.toFixed(2) || '',
+      accountName: '',
+      customAccount: '',
+    })
+    setPortfolioFormError(null)
+    setShowPortfolioModal(true)
+  }
+
+  const closePortfolioModal = () => {
+    setShowPortfolioModal(false)
+    setPortfolioFormError(null)
+  }
+
+  const handleAddToPortfolio = async (e) => {
+    e.preventDefault()
+    setPortfolioFormError(null)
+    setAddingToPortfolio(true)
+
+    const accountName =
+      portfolioFormData.accountName === 'Other'
+        ? portfolioFormData.customAccount
+        : portfolioFormData.accountName
+
+    if (!portfolioFormData.quantity || !portfolioFormData.costBasis || !accountName) {
+      setPortfolioFormError('Please fill in all fields')
+      setAddingToPortfolio(false)
+      return
+    }
+
+    try {
+      await portfolioApi.add({
+        ticker: portfolioFormData.ticker,
+        quantity: parseFloat(portfolioFormData.quantity),
+        costBasis: parseFloat(portfolioFormData.costBasis),
+        accountName,
+      })
+      closePortfolioModal()
+    } catch (err) {
+      setPortfolioFormError(err.response?.data?.detail || 'Failed to add to portfolio')
+    } finally {
+      setAddingToPortfolio(false)
+    }
   }
 
   const formatPercent = (num) => {
@@ -195,20 +275,29 @@ export default function Watchlist() {
         }) : 'N/A'}
       </td>
 
-      {/* Remove button */}
+      {/* Actions */}
       <td className="px-4 py-4 text-right">
-        <button
-          onClick={(e) => handleRemove(item.symbol, e)}
-          disabled={removingSymbol === item.symbol}
-          className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-slate-400 hover:text-red-400"
-          title="Remove from watchlist"
-        >
-          {removingSymbol === item.symbol ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Trash2 className="w-4 h-4" />
-          )}
-        </button>
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={(e) => openPortfolioModal(item, e)}
+            className="p-2 hover:bg-blue-500/20 rounded-lg transition-colors text-slate-400 hover:text-blue-400"
+            title="Add to portfolio"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={(e) => handleRemove(item.symbol, e)}
+            disabled={removingSymbol === item.symbol}
+            className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-slate-400 hover:text-red-400"
+            title="Remove from watchlist"
+          >
+            {removingSymbol === item.symbol ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -372,6 +461,147 @@ export default function Watchlist() {
               {watchlist.map((item) => renderStockRow(item, true))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Add to Portfolio Modal */}
+      {showPortfolioModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-blue-500" />
+                <h2 className="text-lg font-semibold">Add to Portfolio</h2>
+              </div>
+              <button
+                onClick={closePortfolioModal}
+                className="p-1 hover:bg-slate-700 rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddToPortfolio} className="p-6 space-y-4">
+              {portfolioFormError && (
+                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+                  {portfolioFormError}
+                </div>
+              )}
+
+              {/* Ticker (readonly) */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Stock
+                </label>
+                <div className="px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-300">
+                  <span className="font-semibold">{portfolioFormData.ticker}</span>
+                  <span className="text-slate-400 ml-2">{portfolioFormData.name}</span>
+                </div>
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Quantity
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={portfolioFormData.quantity}
+                  onChange={(e) =>
+                    setPortfolioFormData({ ...portfolioFormData, quantity: e.target.value })
+                  }
+                  placeholder="e.g., 100"
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                  autoFocus
+                />
+              </div>
+
+              {/* Cost Basis */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Cost Basis (per share)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={portfolioFormData.costBasis}
+                    onChange={(e) =>
+                      setPortfolioFormData({ ...portfolioFormData, costBasis: e.target.value })
+                    }
+                    placeholder="e.g., 150.50"
+                    className="w-full pl-8 pr-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Pre-filled with current price. Adjust to your actual cost.
+                </p>
+              </div>
+
+              {/* Account */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Account
+                </label>
+                <select
+                  value={portfolioFormData.accountName}
+                  onChange={(e) =>
+                    setPortfolioFormData({ ...portfolioFormData, accountName: e.target.value })
+                  }
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select account...</option>
+                  {ACCOUNT_PRESETS.map((account) => (
+                    <option key={account} value={account}>
+                      {account}
+                    </option>
+                  ))}
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              {/* Custom Account */}
+              {portfolioFormData.accountName === 'Other' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    Custom Account Name
+                  </label>
+                  <input
+                    type="text"
+                    value={portfolioFormData.customAccount}
+                    onChange={(e) =>
+                      setPortfolioFormData({ ...portfolioFormData, customAccount: e.target.value })
+                    }
+                    placeholder="Enter account name"
+                    className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closePortfolioModal}
+                  className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addingToPortfolio}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {addingToPortfolio && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Add to Portfolio
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
