@@ -77,9 +77,9 @@ async def get_market_indices():
     # All market indicators grouped by category
     indicators = [
         # Major indices
-        {"symbol": "^GSPC", "name": "S&P 500", "category": "index"},
+        {"symbol": "^GSPC", "name": "S&P", "category": "index"},
         {"symbol": "^DJI", "name": "Dow", "category": "index"},
-        {"symbol": "^IXIC", "name": "NASDAQ", "category": "index"},
+        {"symbol": "^IXIC", "name": "NDX", "category": "index"},
         # Crypto
         {"symbol": "BTCUSD", "name": "BTC", "category": "crypto"},
         {"symbol": "ETHUSD", "name": "ETH", "category": "crypto"},

@@ -1,0 +1,1045 @@
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  Briefcase,
+  TrendingUp,
+  TrendingDown,
+  Loader2,
+  Trash2,
+  RefreshCw,
+  AlertCircle,
+  Plus,
+  X,
+  Edit2,
+  ChevronDown,
+  ChevronRight,
+  DollarSign,
+  PieChart,
+  Activity,
+  Lock,
+} from 'lucide-react'
+import { portfolioApi } from '../services/api'
+import TickerSearch from '../components/search/TickerSearch'
+
+// Account presets for dropdown
+const ACCOUNT_PRESETS = [
+  'Fidelity',
+  'Schwab',
+  'Robinhood',
+  'Coinbase',
+  'Vanguard',
+  'TD Ameritrade',
+  'E*Trade',
+  'Webull',
+  'Interactive Brokers',
+  'Kraken',
+]
+
+// Asset type display config
+const ASSET_TYPE_CONFIG = {
+  stock: { label: 'Stocks', icon: TrendingUp, color: 'blue' },
+  etf: { label: 'ETFs', icon: PieChart, color: 'purple' },
+  crypto: { label: 'Crypto', icon: DollarSign, color: 'orange' },
+}
+
+export default function Portfolio() {
+  const navigate = useNavigate()
+
+  // PIN state — always start locked, verify with backend on mount
+  const [unlocked, setUnlocked] = useState(false)
+  const [pinRequired, setPinRequired] = useState(null) // null = checking, true/false = known
+  const [pin, setPin] = useState(['', '', '', ''])
+  const [pinError, setPinError] = useState('')
+  const [pinLoading, setPinLoading] = useState(false)
+  const pinRefs = [useRef(null), useRef(null), useRef(null), useRef(null)]
+
+  const [portfolio, setPortfolio] = useState({ holdings: [], summary: null })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [removingId, setRemovingId] = useState(null)
+  const [collapsedSections, setCollapsedSections] = useState(new Set())
+
+  // Modal state
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [editingHolding, setEditingHolding] = useState(null)
+  const [formData, setFormData] = useState({
+    ticker: '',
+    tickerName: '',
+    quantity: '',
+    costBasis: '',
+    accountName: '',
+    customAccount: '',
+  })
+  const [formError, setFormError] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  // Performance state
+  const [performance, setPerformance] = useState(null)
+  const [selectedPeriod, setSelectedPeriod] = useState('1W')
+
+  // On mount: always check backend for PIN status
+  useEffect(() => {
+    portfolioApi.verifyPin('').then((res) => {
+      if (!res.data.pinSet) {
+        // No PIN configured — auto-unlock
+        setUnlocked(true)
+        setPinRequired(false)
+      } else if (sessionStorage.getItem('portfolio_unlocked') === 'true') {
+        // PIN exists but already verified this session
+        setUnlocked(true)
+        setPinRequired(true)
+      } else {
+        // PIN exists and not yet verified — show gate
+        setPinRequired(true)
+      }
+    }).catch(() => {
+      setPinRequired(true)
+    })
+  }, [])
+
+  // Load data once unlocked
+  useEffect(() => {
+    if (unlocked) {
+      loadPortfolio()
+      loadPerformance()
+    }
+  }, [unlocked])
+
+  const handlePinChange = useCallback((index, value) => {
+    // Only allow digits
+    if (value && !/^\d$/.test(value)) return
+
+    const next = [...pin]
+    next[index] = value
+    setPin(next)
+    setPinError('')
+
+    if (value && index < 3) {
+      // Auto-advance to next input
+      pinRefs[index + 1].current?.focus()
+    } else if (value && index === 3) {
+      // Last digit entered — auto-submit
+      const fullPin = next.join('')
+      if (fullPin.length === 4) {
+        setPinLoading(true)
+        portfolioApi.verifyPin(fullPin).then((res) => {
+          if (res.data.verified) {
+            setUnlocked(true)
+            sessionStorage.setItem('portfolio_unlocked', 'true')
+          } else {
+            setPinError('Incorrect PIN')
+            setPin(['', '', '', ''])
+            pinRefs[0].current?.focus()
+          }
+        }).catch(() => {
+          setPinError('Failed to verify PIN')
+        }).finally(() => {
+          setPinLoading(false)
+        })
+      }
+    }
+  }, [pin])
+
+  const handlePinKeyDown = useCallback((index, e) => {
+    // Backspace: clear current and move back
+    if (e.key === 'Backspace' && !pin[index] && index > 0) {
+      pinRefs[index - 1].current?.focus()
+    }
+  }, [pin])
+
+  const handlePinSubmit = useCallback(async (e) => {
+    e?.preventDefault()
+    const fullPin = pin.join('')
+    if (fullPin.length !== 4) {
+      setPinError('Please enter a 4-digit PIN')
+      return
+    }
+
+    setPinLoading(true)
+    setPinError('')
+    try {
+      const response = await portfolioApi.verifyPin(fullPin)
+      if (response.data.verified) {
+        setUnlocked(true)
+        sessionStorage.setItem('portfolio_unlocked', 'true')
+      } else {
+        setPinError('Incorrect PIN')
+        setPin(['', '', '', ''])
+        pinRefs[0].current?.focus()
+      }
+    } catch {
+      setPinError('Failed to verify PIN')
+    } finally {
+      setPinLoading(false)
+    }
+  }, [pin])
+
+  const loadPortfolio = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await portfolioApi.getAll()
+      setPortfolio(response.data)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to load portfolio')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadPerformance = async () => {
+    try {
+      const response = await portfolioApi.getPerformance()
+      setPerformance(response.data)
+    } catch (err) {
+      console.error('Failed to load performance:', err)
+    }
+  }
+
+  // Re-fetch portfolio data without showing the full-page loading spinner
+  const refreshPortfolio = async () => {
+    try {
+      const response = await portfolioApi.getAll()
+      setPortfolio(response.data)
+    } catch (err) {
+      console.error('Failed to refresh portfolio:', err)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await Promise.all([refreshPortfolio(), loadPerformance()])
+    } catch (err) {
+      console.error('Failed to refresh portfolio:', err)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const handleRemove = async (holdingId, e) => {
+    e.stopPropagation()
+    setRemovingId(holdingId)
+    try {
+      await portfolioApi.remove(holdingId)
+      await refreshPortfolio()
+    } catch (err) {
+      console.error('Failed to remove holding:', err)
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  const toggleSection = (assetType) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      next.has(assetType) ? next.delete(assetType) : next.add(assetType)
+      return next
+    })
+  }
+
+  // Form handlers
+  const openAddModal = () => {
+    setFormData({
+      ticker: '',
+      tickerName: '',
+      quantity: '',
+      costBasis: '',
+      accountName: '',
+      customAccount: '',
+    })
+    setFormError(null)
+    setEditingHolding(null)
+    setShowAddModal(true)
+  }
+
+  const openEditModal = (holding, e) => {
+    e.stopPropagation()
+    setFormData({
+      ticker: holding.ticker,
+      tickerName: holding.name || holding.ticker,
+      quantity: holding.quantity.toString(),
+      costBasis: holding.costBasis.toString(),
+      accountName: ACCOUNT_PRESETS.includes(holding.accountName)
+        ? holding.accountName
+        : 'Other',
+      customAccount: ACCOUNT_PRESETS.includes(holding.accountName)
+        ? ''
+        : holding.accountName,
+    })
+    setFormError(null)
+    setEditingHolding(holding)
+    setShowAddModal(true)
+  }
+
+  const closeModal = () => {
+    setShowAddModal(false)
+    setEditingHolding(null)
+    setFormError(null)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setFormError(null)
+    setSubmitting(true)
+
+    const accountName =
+      formData.accountName === 'Other'
+        ? formData.customAccount
+        : formData.accountName
+
+    if (!formData.ticker || !formData.quantity || !formData.costBasis || !accountName) {
+      setFormError('Please fill in all fields')
+      setSubmitting(false)
+      return
+    }
+
+    try {
+      if (editingHolding) {
+        // Update existing
+        await portfolioApi.update(editingHolding.id, {
+          quantity: parseFloat(formData.quantity),
+          costBasis: parseFloat(formData.costBasis),
+          accountName,
+        })
+      } else {
+        // Add new
+        await portfolioApi.add({
+          ticker: formData.ticker.toUpperCase(),
+          quantity: parseFloat(formData.quantity),
+          costBasis: parseFloat(formData.costBasis),
+          accountName,
+        })
+      }
+      closeModal()
+      await refreshPortfolio()
+    } catch (err) {
+      setFormError(err.response?.data?.detail || 'Failed to save holding')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Formatting helpers
+  const formatCurrency = (num) => {
+    if (num === null || num === undefined) return 'N/A'
+    const absNum = Math.abs(num)
+    if (absNum >= 1e9) return `$${(num / 1e9).toFixed(1)}B`
+    if (absNum >= 1e6) return `$${(num / 1e6).toFixed(1)}M`
+    if (absNum >= 1e4) return `$${(num / 1e3).toFixed(1)}K`
+    return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+
+  const formatPercent = (num) => {
+    if (num === null || num === undefined) return 'N/A'
+    return `${num >= 0 ? '+' : ''}${num.toFixed(1)}%`
+  }
+
+  const getGainLossColor = (num) => {
+    if (num === null || num === undefined) return 'text-slate-400'
+    return num >= 0 ? 'text-emerald-400' : 'text-red-400'
+  }
+
+  // Group holdings by asset type
+  const groupedHoldings = useMemo(() => {
+    const groups = { stock: [], etf: [], crypto: [] }
+    portfolio.holdings.forEach((holding) => {
+      const type = holding.assetType || 'stock'
+      if (groups[type]) {
+        groups[type].push(holding)
+      }
+    })
+    return groups
+  }, [portfolio.holdings])
+
+  // PIN gate - still checking if PIN is required
+  if (!unlocked && pinRequired === null) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-500 mb-4" />
+        <p className="text-slate-400">Loading...</p>
+      </div>
+    )
+  }
+
+  // PIN gate - PIN is required, show entry screen
+  if (!unlocked && pinRequired) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-8 w-full max-w-sm text-center">
+          <Lock className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Portfolio Locked</h2>
+          <p className="text-slate-400 text-sm mb-6">
+            Enter your 4-digit PIN to access your portfolio.
+          </p>
+          <form onSubmit={handlePinSubmit}>
+            <div className="flex justify-center gap-3 mb-4">
+              {pin.map((digit, i) => (
+                <input
+                  key={i}
+                  ref={pinRefs[i]}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handlePinChange(i, e.target.value)}
+                  onKeyDown={(e) => handlePinKeyDown(i, e)}
+                  className="w-12 h-14 text-center text-2xl font-bold bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500 transition-colors"
+                  autoFocus={i === 0}
+                />
+              ))}
+            </div>
+            {pinError && (
+              <p className="text-red-400 text-sm mb-4">{pinError}</p>
+            )}
+            <button
+              type="submit"
+              disabled={pinLoading || pin.join('').length !== 4}
+              className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {pinLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+              Unlock
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-500 mb-4" />
+        <p className="text-slate-400">Loading portfolio...</p>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center">
+        <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Unable to Load Portfolio</h2>
+        <p className="text-slate-400 mb-4">{error}</p>
+        <button
+          onClick={loadPortfolio}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  const { summary } = portfolio
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Briefcase className="w-8 h-8 text-blue-500" />
+            <div>
+              <h1 className="text-2xl font-bold">Portfolio</h1>
+              <p className="text-slate-400 text-sm">
+                {portfolio.holdings.length}{' '}
+                {portfolio.holdings.length === 1 ? 'holding' : 'holdings'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Holding</span>
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className={`flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors ${
+                refreshing ? 'opacity-50 cursor-wait' : ''
+              }`}
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Asset Type Breakdown Pills */}
+        {summary && summary.totalValue > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Stocks Pill */}
+            {summary.byAssetType?.stock?.value > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-full">
+                <TrendingUp className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-medium text-blue-400">Stocks</span>
+                <span className="text-sm text-slate-300">
+                  {formatCurrency(summary.byAssetType.stock.value)}
+                </span>
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                  {((summary.byAssetType.stock.value / summary.totalValue) * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
+
+            {/* ETFs Pill */}
+            {summary.byAssetType?.etf?.value > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 border border-purple-500/30 rounded-full">
+                <PieChart className="w-4 h-4 text-purple-400" />
+                <span className="text-sm font-medium text-purple-400">ETFs</span>
+                <span className="text-sm text-slate-300">
+                  {formatCurrency(summary.byAssetType.etf.value)}
+                </span>
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                  {((summary.byAssetType.etf.value / summary.totalValue) * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
+
+            {/* Crypto Pill */}
+            {summary.byAssetType?.crypto?.value > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
+                <DollarSign className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-medium text-orange-400">Crypto</span>
+                <span className="text-sm text-slate-300">
+                  {formatCurrency(summary.byAssetType.crypto.value)}
+                </span>
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                  {((summary.byAssetType.crypto.value / summary.totalValue) * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Summary Cards */}
+      {summary && portfolio.holdings.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+            <div className="text-sm text-slate-400 mb-1">Total Value</div>
+            <div className="text-2xl font-bold">{formatCurrency(summary.totalValue)}</div>
+          </div>
+          <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+            <div className="text-sm text-slate-400 mb-1">Total Cost</div>
+            <div className="text-2xl font-bold">{formatCurrency(summary.totalCost)}</div>
+          </div>
+          <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+            <div className="text-sm text-slate-400 mb-1">Gain/Loss</div>
+            <div className={`text-2xl font-bold ${getGainLossColor(summary.totalGainLoss)}`}>
+              {formatCurrency(summary.totalGainLoss)}
+            </div>
+          </div>
+          <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+            <div className="text-sm text-slate-400 mb-1">Return</div>
+            <div className={`text-2xl font-bold flex items-center gap-2 ${getGainLossColor(summary.totalGainLossPercent)}`}>
+              {summary.totalGainLossPercent >= 0 ? (
+                <TrendingUp className="w-5 h-5" />
+              ) : (
+                <TrendingDown className="w-5 h-5" />
+              )}
+              {formatPercent(summary.totalGainLossPercent)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Weekly Performance Section */}
+      {portfolio.holdings.length > 0 && performance?.periods && (
+        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-700">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-blue-500" />
+                <h2 className="text-lg font-semibold">Performance</h2>
+              </div>
+              <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-1">
+                {['1W', '1M', '3M', 'YTD'].map((period) => (
+                  <button
+                    key={period}
+                    onClick={() => setSelectedPeriod(period)}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      selectedPeriod === period
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {(() => {
+            const periodData = performance.periods[selectedPeriod]
+            if (!periodData) {
+              return (
+                <div className="px-6 py-8 text-center text-slate-400">
+                  <p>No data for this period yet.</p>
+                  <p className="text-sm mt-1">
+                    Snapshots are taken daily when you open the app. Check back after a few days.
+                  </p>
+                </div>
+              )
+            }
+
+            return (
+              <div className="p-6 space-y-5">
+                {/* Total Portfolio Change */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm text-slate-400">
+                      Portfolio Change ({periodData.fromDate} - {periodData.toDate})
+                    </div>
+                    <div className={`text-2xl font-bold flex items-center gap-2 mt-1 ${getGainLossColor(periodData.change)}`}>
+                      {periodData.change >= 0 ? (
+                        <TrendingUp className="w-6 h-6" />
+                      ) : (
+                        <TrendingDown className="w-6 h-6" />
+                      )}
+                      {formatCurrency(periodData.change)}
+                      <span className="text-lg">
+                        ({formatPercent(periodData.changePercent)})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right text-sm text-slate-400">
+                    <div>{formatCurrency(periodData.previousValue)}</div>
+                    <div className="text-slate-500">to</div>
+                    <div>{formatCurrency(periodData.currentValue)}</div>
+                  </div>
+                </div>
+
+                {/* Asset Type Breakdown */}
+                <div>
+                  <div className="text-sm text-slate-400 mb-3">Change by Asset Type</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[
+                      { key: 'stock', label: 'Stocks', color: 'blue', Icon: TrendingUp },
+                      { key: 'etf', label: 'ETFs', color: 'purple', Icon: PieChart },
+                      { key: 'crypto', label: 'Crypto', color: 'orange', Icon: DollarSign },
+                    ].map(({ key, label, color, Icon }) => {
+                      const typeData = periodData.byAssetType?.[key]
+                      if (!typeData || (typeData.previousValue === 0 && typeData.currentValue === 0)) {
+                        return null
+                      }
+
+                      return (
+                        <div
+                          key={key}
+                          className={`bg-slate-900/50 rounded-lg p-4 border border-${color}-500/20`}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <Icon className={`w-4 h-4 text-${color}-400`} />
+                            <span className={`text-sm font-medium text-${color}-400`}>
+                              {label}
+                            </span>
+                          </div>
+                          <div className={`text-xl font-bold ${getGainLossColor(typeData.change)}`}>
+                            {formatPercent(typeData.changePercent)}
+                          </div>
+                          <div className={`text-sm ${getGainLossColor(typeData.change)}`}>
+                            {formatCurrency(typeData.change)}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {formatCurrency(typeData.previousValue)} &rarr; {formatCurrency(typeData.currentValue)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {portfolio.holdings.length === 0 && (
+        <div className="bg-slate-800 rounded-xl p-12 border border-slate-700 text-center">
+          <Briefcase className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">No holdings yet</h2>
+          <p className="text-slate-400 mb-6">
+            Add your first holding to start tracking your portfolio performance.
+          </p>
+          <button
+            onClick={openAddModal}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          >
+            Add Your First Holding
+          </button>
+        </div>
+      )}
+
+      {/* Holdings by Asset Type */}
+      {portfolio.holdings.length > 0 &&
+        Object.entries(ASSET_TYPE_CONFIG).map(([assetType, config]) => {
+          const holdings = groupedHoldings[assetType] || []
+          if (holdings.length === 0) return null
+
+          const isCollapsed = collapsedSections.has(assetType)
+          const typeStats = summary?.byAssetType?.[assetType] || {}
+
+          return (
+            <div
+              key={assetType}
+              className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden"
+            >
+              {/* Section Header */}
+              <button
+                onClick={() => toggleSection(assetType)}
+                className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-700/30 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {isCollapsed ? (
+                    <ChevronRight className="w-5 h-5 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-slate-400" />
+                  )}
+                  <config.icon className={`w-5 h-5 text-${config.color}-500`} />
+                  <span className="font-semibold text-lg">{config.label}</span>
+                  <span className="text-sm text-slate-400 bg-slate-700 px-2 py-0.5 rounded-full">
+                    {holdings.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <div className="text-sm text-slate-400">Value</div>
+                    <div className="font-semibold">{formatCurrency(typeStats.value)}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-slate-400">G/L</div>
+                    <div className={`font-semibold ${getGainLossColor(typeStats.gainLoss)}`}>
+                      {formatCurrency(typeStats.gainLoss)}
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              {/* Holdings Table */}
+              {!isCollapsed && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-t border-slate-700 text-left bg-slate-900/50">
+                      <th className="px-6 py-3 text-slate-400 font-medium text-sm">
+                        Asset
+                      </th>
+                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
+                        Qty
+                      </th>
+                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
+                        Cost Basis
+                      </th>
+                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
+                        Price
+                      </th>
+                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
+                        Value
+                      </th>
+                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
+                        G/L
+                      </th>
+                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
+                        Account
+                      </th>
+                      <th className="px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {holdings.map((holding) => (
+                      <tr
+                        key={holding.id}
+                        onClick={() =>
+                          assetType !== 'crypto' && navigate(`/analysis/${holding.ticker}`)
+                        }
+                        className={`${
+                          assetType !== 'crypto'
+                            ? 'hover:bg-slate-700/30 cursor-pointer'
+                            : ''
+                        } transition-colors`}
+                      >
+                        {/* Asset */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            {holding.image ? (
+                              <img
+                                src={holding.image}
+                                alt={holding.ticker}
+                                className="w-10 h-10 rounded-lg object-contain bg-white p-1"
+                                onError={(e) => {
+                                  e.target.style.display = 'none'
+                                }}
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-slate-700 flex items-center justify-center text-slate-400 text-sm font-bold">
+                                {holding.ticker?.slice(0, 2)}
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold">{holding.ticker}</div>
+                              <div className="text-sm text-slate-400 truncate max-w-[150px]">
+                                {holding.name || holding.ticker}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Quantity */}
+                        <td className="px-4 py-4 text-right font-medium">
+                          {holding.quantity.toLocaleString(undefined, {
+                            maximumFractionDigits: 6,
+                          })}
+                        </td>
+
+                        {/* Cost Basis */}
+                        <td className="px-4 py-4 text-right">
+                          ${holding.costBasis.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </td>
+
+                        {/* Current Price */}
+                        <td className="px-4 py-4 text-right">
+                          {holding.currentPrice != null
+                            ? `$${holding.currentPrice.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}`
+                            : 'N/A'}
+                        </td>
+
+                        {/* Current Value */}
+                        <td className="px-4 py-4 text-right font-semibold">
+                          {formatCurrency(holding.currentValue)}
+                        </td>
+
+                        {/* Gain/Loss */}
+                        <td className="px-4 py-4 text-right">
+                          <div className={getGainLossColor(holding.gainLoss)}>
+                            <div className="font-semibold">
+                              {formatCurrency(holding.gainLoss)}
+                            </div>
+                            <div className="text-sm flex items-center justify-end gap-1">
+                              {holding.gainLossPercent != null &&
+                                holding.gainLossPercent >= 0 && (
+                                  <TrendingUp className="w-3 h-3" />
+                                )}
+                              {holding.gainLossPercent != null &&
+                                holding.gainLossPercent < 0 && (
+                                  <TrendingDown className="w-3 h-3" />
+                                )}
+                              {formatPercent(holding.gainLossPercent)}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Account */}
+                        <td className="px-4 py-4 text-right text-sm text-slate-400">
+                          {holding.accountName}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={(e) => openEditModal(holding, e)}
+                              className="p-2 hover:bg-slate-600/50 rounded-lg transition-colors text-slate-400 hover:text-slate-200"
+                              title="Edit holding"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleRemove(holding.id, e)}
+                              disabled={removingId === holding.id}
+                              className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-slate-400 hover:text-red-400"
+                              title="Remove holding"
+                            >
+                              {removingId === holding.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )
+        })}
+
+      {/* Add/Edit Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
+              <h2 className="text-lg font-semibold">
+                {editingHolding ? 'Edit Holding' : 'Add Holding'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="p-1 hover:bg-slate-700 rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+                  {formError}
+                </div>
+              )}
+
+              {/* Ticker */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Ticker Symbol
+                </label>
+                {editingHolding ? (
+                  <div className="px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-300 opacity-50">
+                    <span className="font-semibold">{formData.ticker}</span>
+                    {formData.tickerName && (
+                      <span className="text-slate-400 ml-2">{formData.tickerName}</span>
+                    )}
+                  </div>
+                ) : formData.ticker ? (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg">
+                    <span className="font-semibold text-blue-400">{formData.ticker}</span>
+                    {formData.tickerName && (
+                      <span className="text-slate-400">{formData.tickerName}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, ticker: '', tickerName: '' })}
+                      className="ml-auto p-0.5 hover:bg-slate-700 rounded transition-colors"
+                    >
+                      <X className="w-4 h-4 text-slate-400 hover:text-white" />
+                    </button>
+                  </div>
+                ) : (
+                  <TickerSearch
+                    compact
+                    placeholder="Search by symbol or company name..."
+                    onSelect={(symbol, name) =>
+                      setFormData({ ...formData, ticker: symbol, tickerName: name || '' })
+                    }
+                  />
+                )}
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Quantity
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={formData.quantity}
+                  onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                  placeholder="e.g., 100"
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Cost Basis */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Cost Basis (per share/unit)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.costBasis}
+                    onChange={(e) =>
+                      setFormData({ ...formData, costBasis: e.target.value })
+                    }
+                    placeholder="e.g., 150.50"
+                    className="w-full pl-8 pr-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Account */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Account
+                </label>
+                <select
+                  value={formData.accountName}
+                  onChange={(e) =>
+                    setFormData({ ...formData, accountName: e.target.value })
+                  }
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select account...</option>
+                  {ACCOUNT_PRESETS.map((account) => (
+                    <option key={account} value={account}>
+                      {account}
+                    </option>
+                  ))}
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              {/* Custom Account */}
+              {formData.accountName === 'Other' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    Custom Account Name
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.customAccount}
+                    onChange={(e) =>
+                      setFormData({ ...formData, customAccount: e.target.value })
+                    }
+                    placeholder="Enter account name"
+                    className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {editingHolding ? 'Save Changes' : 'Add Holding'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

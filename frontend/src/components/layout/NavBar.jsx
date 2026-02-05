@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { TrendingUp, TrendingDown, LayoutDashboard, Star } from 'lucide-react'
+import { TrendingUp, LayoutDashboard, Star, Briefcase } from 'lucide-react'
 import { companiesApi } from '../../services/api'
 
 // Category colors for visual distinction
@@ -53,13 +53,13 @@ export default function NavBar() {
             <span className="text-xl font-bold hidden sm:inline">FinAgent</span>
           </Link>
 
-          {/* Market Indicators - Scrollable */}
-          <div className="flex-1 mx-4 overflow-x-auto scrollbar-hide">
-            <div className="flex items-center gap-1.5 justify-center">
+          {/* Market Indicators - Compact */}
+          <div className="flex-1 mx-2 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1 justify-center">
               {indices.filter(idx => idx.price).map((idx) => (
                 <div
                   key={idx.symbol}
-                  className={`flex items-center gap-1.5 px-2 py-1 bg-slate-700/50 rounded-full text-xs border ${categoryColors[idx.category] || 'border-slate-600'}`}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 bg-slate-700/50 rounded-full text-xs border whitespace-nowrap ${categoryColors[idx.category] || 'border-slate-600'}`}
                 >
                   <span className="text-slate-300 font-medium">{idx.name}</span>
                   <span className="text-slate-400">
@@ -67,17 +67,12 @@ export default function NavBar() {
                   </span>
                   {idx.changePercent !== null && (
                     <span
-                      className={`flex items-center font-medium ${
+                      className={`font-medium ${
                         idx.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'
                       }`}
                     >
-                      {idx.changePercent >= 0 ? (
-                        <TrendingUp className="w-2.5 h-2.5" />
-                      ) : (
-                        <TrendingDown className="w-2.5 h-2.5" />
-                      )}
                       {idx.changePercent >= 0 ? '+' : ''}
-                      {idx.changePercent?.toFixed(2)}%
+                      {idx.changePercent?.toFixed(1)}%
                     </span>
                   )}
                 </div>
@@ -99,6 +94,13 @@ export default function NavBar() {
             >
               <Star className="h-4 w-4" />
               <span className="hidden sm:inline">Watchlist</span>
+            </Link>
+            <Link
+              to="/portfolio"
+              className="flex items-center space-x-1 px-3 py-2 rounded-md hover:bg-slate-700 transition-colors text-blue-400"
+            >
+              <Briefcase className="h-4 w-4" />
+              <span className="hidden sm:inline">Portfolio</span>
             </Link>
           </div>
         </div>

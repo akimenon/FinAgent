@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routes import companies, financials, agent_query, watchlist
+from routes import companies, financials, agent_query, watchlist, portfolio
 
 
 @asynccontextmanager
@@ -38,6 +38,7 @@ app.include_router(companies.router)
 app.include_router(financials.router)
 app.include_router(agent_query.router)
 app.include_router(watchlist.router)
+app.include_router(portfolio.router)
 
 
 @app.get("/")
