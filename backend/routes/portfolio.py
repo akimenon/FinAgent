@@ -162,6 +162,9 @@ async def get_portfolio():
         ticker = holding["ticker"]
         price_data = crypto_prices.get(ticker)
         price = price_data.get("price") if price_data else None
+        # Fallback to costBasis for unrecognized tickers (e.g. LEDGER)
+        if price is None:
+            price = holding.get("costBasis", 0)
         return enrich_holding(holding, price, ticker, None, None)
 
     def enrich_holding(holding, price, name, image, industry=None):
@@ -368,6 +371,9 @@ async def take_snapshot(force: bool = False):
     for holding in crypto_holdings:
         price_data = crypto_prices.get(holding["ticker"])
         price = price_data.get("price") if price_data else None
+        # Fallback to costBasis for unrecognized tickers (e.g. LEDGER)
+        if price is None:
+            price = holding.get("costBasis", 0)
         enriched_holdings.append(_enrich_for_snapshot(holding, price))
 
     # Custom holdings: cost basis = current price
