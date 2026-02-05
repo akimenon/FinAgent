@@ -28,6 +28,16 @@ import {
 import { portfolioApi } from '../services/api'
 import TickerSearch from '../components/search/TickerSearch'
 
+// Miscellaneous investment category presets
+const MISC_CATEGORIES = [
+  '529 Plan',
+  'Angel Investment',
+  'Real Estate',
+  'Private Equity',
+  'Collectibles',
+  'Other',
+]
+
 // Account presets for dropdown
 const ACCOUNT_PRESETS = [
   'Fidelity',
@@ -53,7 +63,7 @@ const ASSET_TYPE_CONFIG = {
   stock: { label: 'Stocks', icon: TrendingUp, color: 'blue', activeChip: 'bg-blue-500/20 border-blue-500/50 text-blue-300' },
   etf: { label: 'ETFs', icon: PieChart, color: 'purple', activeChip: 'bg-purple-500/20 border-purple-500/50 text-purple-300' },
   crypto: { label: 'Crypto', icon: DollarSign, color: 'orange', activeChip: 'bg-orange-500/20 border-orange-500/50 text-orange-300' },
-  custom: { label: 'Custom', icon: Wallet, color: 'teal', activeChip: 'bg-teal-500/20 border-teal-500/50 text-teal-300' },
+  custom: { label: 'Miscellaneous', icon: Wallet, color: 'teal', activeChip: 'bg-teal-500/20 border-teal-500/50 text-teal-300' },
   cash: { label: 'Cash', icon: Banknote, color: 'emerald', activeChip: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' },
 }
 
@@ -371,9 +381,18 @@ export default function Portfolio() {
 
     const isCash = addType === 'cash' && !editingHolding
     const isCashEdit = editingHolding?.assetType === 'cash'
+    const isMisc = addType === 'misc' && !editingHolding
+    const isMiscEdit = editingHolding?.assetType === 'custom'
 
     if (isCash || isCashEdit) {
       if (!formData.costBasis || !accountName) {
+        setFormError('Please fill in all fields')
+        setSubmitting(false)
+        return
+      }
+    } else if (isMisc || isMiscEdit) {
+      const miscTicker = formData.ticker === 'Other' ? formData.tickerName : formData.ticker
+      if (!miscTicker || !formData.costBasis || !accountName) {
         setFormError('Please fill in all fields')
         setSubmitting(false)
         return
@@ -388,7 +407,7 @@ export default function Portfolio() {
       if (editingHolding) {
         // Update existing
         await portfolioApi.update(editingHolding.id, {
-          quantity: isCashEdit ? 1 : parseFloat(formData.quantity),
+          quantity: (isCashEdit || isMiscEdit) ? 1 : parseFloat(formData.quantity),
           costBasis: parseFloat(formData.costBasis),
           accountName,
         })
@@ -400,6 +419,16 @@ export default function Portfolio() {
           costBasis: parseFloat(formData.costBasis),
           accountName,
           assetType: 'cash',
+        })
+      } else if (isMisc) {
+        // Add miscellaneous investment
+        const miscTicker = formData.ticker === 'Other' ? formData.tickerName : formData.ticker
+        await portfolioApi.add({
+          ticker: miscTicker.toUpperCase(),
+          quantity: 1,
+          costBasis: parseFloat(formData.costBasis),
+          accountName,
+          assetType: 'custom',
         })
       } else {
         // Add new holding
@@ -622,22 +651,33 @@ export default function Portfolio() {
               </div>
             )}
 
-            {/* Crypto + Custom combined Pill */}
-            {((summary.byAssetType?.crypto?.value || 0) + (summary.byAssetType?.custom?.value || 0)) > 0 && (() => {
-              const combinedValue = (summary.byAssetType?.crypto?.value || 0) + (summary.byAssetType?.custom?.value || 0)
-              return (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
-                  <DollarSign className="w-4 h-4 text-orange-400" />
-                  <span className="text-sm font-medium text-orange-400">Crypto</span>
-                  <span className="text-sm text-slate-300">
-                    {formatCurrency(combinedValue)}
-                  </span>
-                  <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                    {((combinedValue / summary.totalValue) * 100).toFixed(0)}%
-                  </span>
-                </div>
-              )
-            })()}
+            {/* Crypto Pill */}
+            {(summary.byAssetType?.crypto?.value || 0) > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
+                <DollarSign className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-medium text-orange-400">Crypto</span>
+                <span className="text-sm text-slate-300">
+                  {formatCurrency(summary.byAssetType.crypto.value)}
+                </span>
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                  {((summary.byAssetType.crypto.value / summary.totalValue) * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
+
+            {/* Miscellaneous Pill */}
+            {(summary.byAssetType?.custom?.value || 0) > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-teal-500/10 border border-teal-500/30 rounded-full">
+                <Wallet className="w-4 h-4 text-teal-400" />
+                <span className="text-sm font-medium text-teal-400">Misc</span>
+                <span className="text-sm text-slate-300">
+                  {formatCurrency(summary.byAssetType.custom.value)}
+                </span>
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                  {((summary.byAssetType.custom.value / summary.totalValue) * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
 
             {/* Cash Pill */}
             {(summary.byAssetType?.cash?.value || 0) > 0 && (
@@ -762,7 +802,7 @@ export default function Portfolio() {
                       { key: 'stock', label: 'Stocks', color: 'blue', Icon: TrendingUp },
                       { key: 'etf', label: 'ETFs', color: 'purple', Icon: PieChart },
                       { key: 'crypto', label: 'Crypto', color: 'orange', Icon: DollarSign },
-                      { key: 'custom', label: 'Custom', color: 'teal', Icon: Wallet },
+                      { key: 'custom', label: 'Miscellaneous', color: 'teal', Icon: Wallet },
                       { key: 'cash', label: 'Cash', color: 'emerald', Icon: Banknote },
                     ].map(({ key, label, color, Icon }) => {
                       const typeData = periodData.byAssetType?.[key]
@@ -1240,8 +1280,12 @@ export default function Portfolio() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
               <h2 className="text-lg font-semibold">
                 {editingHolding
-                  ? editingHolding.assetType === 'cash' ? 'Edit Cash' : 'Edit Holding'
-                  : addType === 'cash' ? 'Add Cash' : 'Add Holding'}
+                  ? editingHolding.assetType === 'cash' ? 'Edit Cash'
+                    : editingHolding.assetType === 'custom' ? 'Edit Miscellaneous'
+                    : 'Edit Holding'
+                  : addType === 'cash' ? 'Add Cash'
+                    : addType === 'misc' ? 'Add Miscellaneous'
+                    : 'Add Holding'}
               </h2>
               <button
                 onClick={closeModal}
@@ -1283,11 +1327,63 @@ export default function Portfolio() {
                   >
                     Cash
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddType('misc')}
+                    className={`flex-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      addType === 'misc'
+                        ? 'bg-teal-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Misc
+                  </button>
                 </div>
               )}
 
-              {/* Ticker (not for cash) */}
-              {addType !== 'cash' && !(editingHolding?.assetType === 'cash') && (
+              {/* Category (for misc) */}
+              {(addType === 'misc' || editingHolding?.assetType === 'custom') && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    Category
+                  </label>
+                  {editingHolding ? (
+                    <div className="px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg text-slate-300 opacity-50">
+                      <span className="font-semibold">{formData.ticker}</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.ticker}
+                      onChange={(e) => setFormData({ ...formData, ticker: e.target.value })}
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-teal-500"
+                    >
+                      <option value="">Select category...</option>
+                      {MISC_CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* Custom category name */}
+              {addType === 'misc' && formData.ticker === 'Other' && !editingHolding && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    Custom Category
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.tickerName}
+                    onChange={(e) => setFormData({ ...formData, tickerName: e.target.value })}
+                    placeholder="Enter category name"
+                    className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              )}
+
+              {/* Ticker (not for cash or misc) */}
+              {addType === 'holding' && !(editingHolding?.assetType === 'cash') && !(editingHolding?.assetType === 'custom') && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
                   Ticker Symbol
@@ -1325,8 +1421,8 @@ export default function Portfolio() {
               </div>
               )}
 
-              {/* Quantity (not for cash) */}
-              {addType !== 'cash' && !(editingHolding?.assetType === 'cash') && (
+              {/* Quantity (not for cash or misc) */}
+              {addType === 'holding' && !(editingHolding?.assetType === 'cash') && !(editingHolding?.assetType === 'custom') && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
                   Quantity
@@ -1345,7 +1441,11 @@ export default function Portfolio() {
               {/* Amount (for cash) / Cost Basis (for holdings) */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
-                  {addType === 'cash' || editingHolding?.assetType === 'cash' ? 'Amount' : 'Cost Basis (per share/unit)'}
+                  {addType === 'cash' || editingHolding?.assetType === 'cash'
+                    ? 'Amount'
+                    : addType === 'misc' || editingHolding?.assetType === 'custom'
+                      ? 'Investment Amount'
+                      : 'Cost Basis (per share/unit)'}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -1419,7 +1519,7 @@ export default function Portfolio() {
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {editingHolding ? 'Save Changes' : addType === 'cash' ? 'Add Cash' : 'Add Holding'}
+                  {editingHolding ? 'Save Changes' : addType === 'cash' ? 'Add Cash' : addType === 'misc' ? 'Add Investment' : 'Add Holding'}
                 </button>
               </div>
             </form>

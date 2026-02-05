@@ -221,42 +221,14 @@ class CryptoService:
         return results
 
     async def _get_coin_id(self, ticker: str) -> Optional[str]:
-        """Get CoinGecko ID for a ticker, using cache and search API."""
+        """Get CoinGecko ID for a ticker. Only uses CRYPTO_ID_MAP — no search fallback."""
         ticker_upper = ticker.upper()
 
-        # Check direct mapping first
         if ticker_upper in CRYPTO_ID_MAP:
             return CRYPTO_ID_MAP[ticker_upper]
 
-        # Check cache
-        if ticker_upper in self._coin_id_cache:
-            return self._coin_id_cache[ticker_upper]
-
-        # Search CoinGecko API
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(
-                    f"{self.base_url}/search",
-                    params={"query": ticker_upper}
-                )
-                response.raise_for_status()
-                data = response.json()
-
-                coins = data.get("coins", [])
-                # Find exact symbol match
-                for coin in coins:
-                    if coin.get("symbol", "").upper() == ticker_upper:
-                        coin_id = coin.get("id")
-                        self._coin_id_cache[ticker_upper] = coin_id
-                        return coin_id
-
-                # No match found
-                self._coin_id_cache[ticker_upper] = None
-                return None
-
-        except Exception as e:
-            print(f"Error searching for crypto {ticker}: {e}")
-            return None
+        # Unknown ticker (e.g. LEDGER) — skip CoinGecko lookup
+        return None
 
     async def search(self, query: str) -> list[Dict[str, Any]]:
         """Search for cryptocurrencies by name or symbol."""
