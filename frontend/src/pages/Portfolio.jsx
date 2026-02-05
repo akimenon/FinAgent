@@ -638,13 +638,27 @@ export default function Portfolio() {
                 </div>
               )
             })()}
+
+            {/* Cash Pill */}
+            {(summary.byAssetType?.cash?.value || 0) > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
+                <Banknote className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-medium text-emerald-400">Cash</span>
+                <span className="text-sm text-slate-300">
+                  {formatCurrency(summary.byAssetType.cash.value)}
+                </span>
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                  {((summary.byAssetType.cash.value / summary.totalValue) * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Summary Cards */}
       {summary && portfolio.holdings.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
             <div className="text-sm text-slate-400 mb-1">Total Value</div>
             <div className="text-2xl font-bold">{formatCurrency(summary.totalValue)}</div>
@@ -668,15 +682,6 @@ export default function Portfolio() {
                 <TrendingDown className="w-5 h-5" />
               )}
               {formatPercent(summary.totalGainLossPercent)}
-            </div>
-          </div>
-          <div className="bg-slate-800 rounded-xl p-4 border border-emerald-500/30">
-            <div className="text-sm text-slate-400 mb-1 flex items-center gap-1.5">
-              <Banknote className="w-4 h-4 text-emerald-400" />
-              Total Cash
-            </div>
-            <div className="text-2xl font-bold text-emerald-400">
-              {formatCurrency(summary.byAssetType?.cash?.value || 0)}
             </div>
           </div>
         </div>

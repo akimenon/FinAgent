@@ -32,6 +32,7 @@ KNOWN_ETFS = {
     "GLD", "SLV", "USO", "TLT", "IEF", "SHY", "IEMG", "VNQ", "SCHF", "SCHA",
     "SPLG", "SPTM", "VB", "VO", "VTV", "VUG", "VXUS", "ITOT", "IJH", "IJR",
     "QQQM", "QQQE", "SOXX", "SMH", "XBI", "IBB", "KWEB", "FXI", "MCHI",
+    "ARKK", "ARKX", "ARKW", "ARKF", "ARKG", "ARKQ", "PBW", "PBD", "ICLN", "TAN",
 }
 
 

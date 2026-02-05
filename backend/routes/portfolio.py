@@ -283,6 +283,9 @@ async def add_holding(request: AddHoldingRequest):
                 status_code=404,
                 detail=f"Ticker {request.ticker.upper()} not found"
             )
+        # Use API's isEtf flag for reliable ETF detection
+        if profile.get("isEtf"):
+            asset_type = "etf"
 
     holding = portfolio_service.add(
         ticker=request.ticker,
