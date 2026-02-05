@@ -3,9 +3,15 @@ Crypto Service
 
 CoinGecko API client for fetching cryptocurrency prices.
 Free tier, no API key required.
+
+Prices are cached to backend/data/crypto_cache/ with a 12-hour TTL
+to avoid CoinGecko rate limits.
 """
 
+import json
 import httpx
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 
@@ -73,6 +79,9 @@ CRYPTO_ID_MAP = {
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 
 
+CACHE_TTL_HOURS = 12
+
+
 class CryptoService:
     """CoinGecko API client for crypto prices."""
 
@@ -81,71 +90,84 @@ class CryptoService:
         self.timeout = 10.0
         # Cache for coin ID lookups
         self._coin_id_cache: Dict[str, Optional[str]] = {}
+        # File-based price cache
+        base_dir = Path(__file__).parent.parent
+        self._cache_dir = base_dir / "data" / "crypto_cache"
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_file = self._cache_dir / "prices.json"
+
+    def _read_cache(self) -> Dict[str, Any]:
+        """Read cached prices if fresh (within TTL)."""
+        if not self._cache_file.exists():
+            return {}
+        try:
+            data = json.loads(self._cache_file.read_text())
+            fetched_at = datetime.fromisoformat(data.get("fetchedAt", ""))
+            if datetime.now() - fetched_at < timedelta(hours=CACHE_TTL_HOURS):
+                return data.get("prices", {})
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return {}
+
+    def _write_cache(self, prices: Dict[str, Any]) -> None:
+        """Write prices to cache with current timestamp."""
+        # Merge with existing cache (don't lose tickers not fetched this time)
+        existing = {}
+        if self._cache_file.exists():
+            try:
+                data = json.loads(self._cache_file.read_text())
+                fetched_at = datetime.fromisoformat(data.get("fetchedAt", ""))
+                if datetime.now() - fetched_at < timedelta(hours=CACHE_TTL_HOURS):
+                    existing = data.get("prices", {})
+            except (json.JSONDecodeError, ValueError):
+                pass
+        existing.update(prices)
+        self._cache_file.write_text(json.dumps({
+            "fetchedAt": datetime.now().isoformat(),
+            "prices": existing,
+        }, indent=2))
 
     async def get_price(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
         Get current price for a crypto ticker.
-
-        Returns dict with:
-        - price: Current USD price
-        - change24h: 24h price change percentage
-        - marketCap: Market cap in USD
-        - volume24h: 24h trading volume
+        Uses the batch method (which has caching) for consistency.
         """
-        ticker_upper = ticker.upper()
-
-        # Get CoinGecko ID
-        coin_id = await self._get_coin_id(ticker_upper)
-        if not coin_id:
-            return None
-
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(
-                    f"{self.base_url}/simple/price",
-                    params={
-                        "ids": coin_id,
-                        "vs_currencies": "usd",
-                        "include_24hr_change": "true",
-                        "include_market_cap": "true",
-                        "include_24hr_vol": "true",
-                    }
-                )
-                response.raise_for_status()
-                data = response.json()
-
-                if coin_id not in data:
-                    return None
-
-                coin_data = data[coin_id]
-                return {
-                    "ticker": ticker_upper,
-                    "coinId": coin_id,
-                    "price": coin_data.get("usd"),
-                    "change24h": coin_data.get("usd_24h_change"),
-                    "marketCap": coin_data.get("usd_market_cap"),
-                    "volume24h": coin_data.get("usd_24h_vol"),
-                }
-        except Exception as e:
-            print(f"Error fetching crypto price for {ticker}: {e}")
-            return None
+        result = await self.get_prices_batch([ticker])
+        return result.get(ticker.upper())
 
     async def get_prices_batch(
         self, tickers: list[str]
     ) -> Dict[str, Optional[Dict[str, Any]]]:
-        """Get prices for multiple crypto tickers."""
+        """Get prices for multiple crypto tickers. Uses 12h file cache."""
         results = {}
+        cached = self._read_cache()
 
-        # Get coin IDs for all tickers
-        coin_ids = {}
+        # Check which tickers we already have cached
+        tickers_to_fetch = []
         for ticker in tickers:
-            ticker_upper = ticker.upper()
+            t = ticker.upper()
+            if t in cached:
+                results[t] = cached[t]
+            else:
+                tickers_to_fetch.append(t)
+
+        # If everything was cached, return early
+        if not tickers_to_fetch:
+            print(f"[CRYPTO CACHE HIT] All {len(tickers)} tickers served from cache")
+            return results
+
+        # Get coin IDs for uncached tickers
+        coin_ids = {}
+        for ticker_upper in tickers_to_fetch:
             coin_id = await self._get_coin_id(ticker_upper)
             if coin_id:
                 coin_ids[ticker_upper] = coin_id
 
         if not coin_ids:
-            return {t.upper(): None for t in tickers}
+            # No valid coin IDs found, return cached + None for the rest
+            for t in tickers_to_fetch:
+                results[t] = None
+            return results
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -162,10 +184,11 @@ class CryptoService:
                 response.raise_for_status()
                 data = response.json()
 
+                fresh_prices = {}
                 for ticker_upper, coin_id in coin_ids.items():
                     if coin_id in data:
                         coin_data = data[coin_id]
-                        results[ticker_upper] = {
+                        price_data = {
                             "ticker": ticker_upper,
                             "coinId": coin_id,
                             "price": coin_data.get("usd"),
@@ -173,12 +196,22 @@ class CryptoService:
                             "marketCap": coin_data.get("usd_market_cap"),
                             "volume24h": coin_data.get("usd_24h_vol"),
                         }
+                        results[ticker_upper] = price_data
+                        fresh_prices[ticker_upper] = price_data
                     else:
                         results[ticker_upper] = None
 
+                # Save freshly fetched prices to cache
+                if fresh_prices:
+                    self._write_cache(fresh_prices)
+                    print(f"[CRYPTO CACHE] Fetched & cached {len(fresh_prices)} tickers, {len(cached)} from cache")
+
         except Exception as e:
             print(f"Error fetching batch crypto prices: {e}")
-            return {t.upper(): None for t in tickers}
+            # Return whatever we had cached + None for the rest
+            for t in tickers_to_fetch:
+                if t not in results:
+                    results[t] = None
 
         # Add None for tickers we couldn't find IDs for
         for ticker in tickers:

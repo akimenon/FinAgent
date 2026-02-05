@@ -13,10 +13,17 @@ import {
   Edit2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  ArrowUpDown,
   DollarSign,
   PieChart,
   Activity,
   Lock,
+  Wallet,
+  Filter,
+  Banknote,
+  Camera,
+  Check,
 } from 'lucide-react'
 import { portfolioApi } from '../services/api'
 import TickerSearch from '../components/search/TickerSearch'
@@ -24,22 +31,30 @@ import TickerSearch from '../components/search/TickerSearch'
 // Account presets for dropdown
 const ACCOUNT_PRESETS = [
   'Fidelity',
-  'Schwab',
+  'Charles Schwab',
   'Robinhood',
   'Coinbase',
+  'Coinbase Wallet',
   'Vanguard',
   'TD Ameritrade',
   'E*Trade',
   'Webull',
   'Interactive Brokers',
   'Kraken',
+  'Ledger',
+  'Wealthfront',
+  'Chase',
+  'Wells Fargo',
+  'Bank of America',
 ]
 
 // Asset type display config
 const ASSET_TYPE_CONFIG = {
-  stock: { label: 'Stocks', icon: TrendingUp, color: 'blue' },
-  etf: { label: 'ETFs', icon: PieChart, color: 'purple' },
-  crypto: { label: 'Crypto', icon: DollarSign, color: 'orange' },
+  stock: { label: 'Stocks', icon: TrendingUp, color: 'blue', activeChip: 'bg-blue-500/20 border-blue-500/50 text-blue-300' },
+  etf: { label: 'ETFs', icon: PieChart, color: 'purple', activeChip: 'bg-purple-500/20 border-purple-500/50 text-purple-300' },
+  crypto: { label: 'Crypto', icon: DollarSign, color: 'orange', activeChip: 'bg-orange-500/20 border-orange-500/50 text-orange-300' },
+  custom: { label: 'Custom', icon: Wallet, color: 'teal', activeChip: 'bg-teal-500/20 border-teal-500/50 text-teal-300' },
+  cash: { label: 'Cash', icon: Banknote, color: 'emerald', activeChip: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' },
 }
 
 export default function Portfolio() {
@@ -57,12 +72,17 @@ export default function Portfolio() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [snapshotting, setSnapshotting] = useState(false) // 'idle' | 'loading' | 'done'
+  const [snapshotResult, setSnapshotResult] = useState(null)
   const [removingId, setRemovingId] = useState(null)
   const [collapsedSections, setCollapsedSections] = useState(new Set())
+  const [sectionFilters, setSectionFilters] = useState({}) // { [assetType]: { type: 'account'|'ticker', value: string } }
+  const [sectionSort, setSectionSort] = useState({}) // { [assetType]: { key: string, direction: 'asc'|'desc' } }
 
   // Modal state
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingHolding, setEditingHolding] = useState(null)
+  const [addType, setAddType] = useState('holding') // 'holding' or 'cash'
   const [formData, setFormData] = useState({
     ticker: '',
     tickerName: '',
@@ -218,6 +238,25 @@ export default function Portfolio() {
     }
   }
 
+  const handleSnapshot = async () => {
+    setSnapshotting(true)
+    setSnapshotResult(null)
+    try {
+      const response = await portfolioApi.takeSnapshot(true)
+      setSnapshotResult(response.data)
+      // Refresh performance data since we just took a new snapshot
+      await loadPerformance()
+      // Brief success indicator
+      setTimeout(() => {
+        setSnapshotting(false)
+        setSnapshotResult(null)
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to take snapshot:', err)
+      setSnapshotting(false)
+    }
+  }
+
   const handleRemove = async (holdingId, e) => {
     e.stopPropagation()
     setRemovingId(holdingId)
@@ -237,6 +276,46 @@ export default function Portfolio() {
       next.has(assetType) ? next.delete(assetType) : next.add(assetType)
       return next
     })
+  }
+
+  const handleSort = (assetType, key) => {
+    setSectionSort((prev) => {
+      const current = prev[assetType]
+      if (current?.key === key) {
+        // Cycle: asc → desc → clear
+        if (current.direction === 'asc') return { ...prev, [assetType]: { key, direction: 'desc' } }
+        const next = { ...prev }
+        delete next[assetType]
+        return next
+      }
+      return { ...prev, [assetType]: { key, direction: 'asc' } }
+    })
+  }
+
+  const sortHoldings = (holdings, assetType) => {
+    const sort = sectionSort[assetType]
+    if (!sort) return holdings
+    const { key, direction } = sort
+    const sorted = [...holdings].sort((a, b) => {
+      let aVal = a[key]
+      let bVal = b[key]
+      // Handle nulls
+      if (aVal == null && bVal == null) return 0
+      if (aVal == null) return 1
+      if (bVal == null) return -1
+      // String comparison for text fields
+      if (typeof aVal === 'string') return aVal.localeCompare(bVal)
+      return aVal - bVal
+    })
+    return direction === 'desc' ? sorted.reverse() : sorted
+  }
+
+  const SortIcon = ({ assetType, column }) => {
+    const sort = sectionSort[assetType]
+    if (sort?.key !== column) return <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+    return sort.direction === 'asc'
+      ? <ChevronUp className="w-3 h-3 text-blue-400" />
+      : <ChevronDown className="w-3 h-3 text-blue-400" />
   }
 
   // Form handlers
@@ -277,6 +356,7 @@ export default function Portfolio() {
     setShowAddModal(false)
     setEditingHolding(null)
     setFormError(null)
+    setAddType('holding')
   }
 
   const handleSubmit = async (e) => {
@@ -289,7 +369,16 @@ export default function Portfolio() {
         ? formData.customAccount
         : formData.accountName
 
-    if (!formData.ticker || !formData.quantity || !formData.costBasis || !accountName) {
+    const isCash = addType === 'cash' && !editingHolding
+    const isCashEdit = editingHolding?.assetType === 'cash'
+
+    if (isCash || isCashEdit) {
+      if (!formData.costBasis || !accountName) {
+        setFormError('Please fill in all fields')
+        setSubmitting(false)
+        return
+      }
+    } else if (!formData.ticker || !formData.quantity || !formData.costBasis || !accountName) {
       setFormError('Please fill in all fields')
       setSubmitting(false)
       return
@@ -299,12 +388,21 @@ export default function Portfolio() {
       if (editingHolding) {
         // Update existing
         await portfolioApi.update(editingHolding.id, {
-          quantity: parseFloat(formData.quantity),
+          quantity: isCashEdit ? 1 : parseFloat(formData.quantity),
           costBasis: parseFloat(formData.costBasis),
           accountName,
         })
+      } else if (isCash) {
+        // Add cash
+        await portfolioApi.add({
+          ticker: 'CASH',
+          quantity: 1,
+          costBasis: parseFloat(formData.costBasis),
+          accountName,
+          assetType: 'cash',
+        })
       } else {
-        // Add new
+        // Add new holding
         await portfolioApi.add({
           ticker: formData.ticker.toUpperCase(),
           quantity: parseFloat(formData.quantity),
@@ -325,9 +423,9 @@ export default function Portfolio() {
   const formatCurrency = (num) => {
     if (num === null || num === undefined) return 'N/A'
     const absNum = Math.abs(num)
-    if (absNum >= 1e9) return `$${(num / 1e9).toFixed(1)}B`
-    if (absNum >= 1e6) return `$${(num / 1e6).toFixed(1)}M`
-    if (absNum >= 1e4) return `$${(num / 1e3).toFixed(1)}K`
+    if (absNum >= 1e9) return `$${(num / 1e9).toFixed(2)}B`
+    if (absNum >= 1e6) return `$${(num / 1e6).toFixed(2)}M`
+    if (absNum >= 1e4) return `$${(num / 1e3).toFixed(2)}K`
     return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
 
@@ -343,7 +441,7 @@ export default function Portfolio() {
 
   // Group holdings by asset type
   const groupedHoldings = useMemo(() => {
-    const groups = { stock: [], etf: [], crypto: [] }
+    const groups = { stock: [], etf: [], crypto: [], custom: [], cash: [] }
     portfolio.holdings.forEach((holding) => {
       const type = holding.assetType || 'stock'
       if (groups[type]) {
@@ -469,6 +567,27 @@ export default function Portfolio() {
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
+            <button
+              onClick={handleSnapshot}
+              disabled={snapshotting}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                snapshotResult
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-700 hover:bg-slate-600'
+              } ${snapshotting && !snapshotResult ? 'opacity-50 cursor-wait' : ''}`}
+              title="Take portfolio snapshot"
+            >
+              {snapshotting && !snapshotResult ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : snapshotResult ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <Camera className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">
+                {snapshotResult ? 'Saved' : 'Snapshot'}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -503,16 +622,33 @@ export default function Portfolio() {
               </div>
             )}
 
-            {/* Crypto Pill */}
-            {summary.byAssetType?.crypto?.value > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
-                <DollarSign className="w-4 h-4 text-orange-400" />
-                <span className="text-sm font-medium text-orange-400">Crypto</span>
+            {/* Crypto + Custom combined Pill */}
+            {((summary.byAssetType?.crypto?.value || 0) + (summary.byAssetType?.custom?.value || 0)) > 0 && (() => {
+              const combinedValue = (summary.byAssetType?.crypto?.value || 0) + (summary.byAssetType?.custom?.value || 0)
+              return (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
+                  <DollarSign className="w-4 h-4 text-orange-400" />
+                  <span className="text-sm font-medium text-orange-400">Crypto</span>
+                  <span className="text-sm text-slate-300">
+                    {formatCurrency(combinedValue)}
+                  </span>
+                  <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                    {((combinedValue / summary.totalValue) * 100).toFixed(0)}%
+                  </span>
+                </div>
+              )
+            })()}
+
+            {/* Cash Pill */}
+            {(summary.byAssetType?.cash?.value || 0) > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
+                <Banknote className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-medium text-emerald-400">Cash</span>
                 <span className="text-sm text-slate-300">
-                  {formatCurrency(summary.byAssetType.crypto.value)}
+                  {formatCurrency(summary.byAssetType.cash.value)}
                 </span>
                 <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                  {((summary.byAssetType.crypto.value / summary.totalValue) * 100).toFixed(0)}%
+                  {((summary.byAssetType.cash.value / summary.totalValue) * 100).toFixed(0)}%
                 </span>
               </div>
             )}
@@ -626,6 +762,8 @@ export default function Portfolio() {
                       { key: 'stock', label: 'Stocks', color: 'blue', Icon: TrendingUp },
                       { key: 'etf', label: 'ETFs', color: 'purple', Icon: PieChart },
                       { key: 'crypto', label: 'Crypto', color: 'orange', Icon: DollarSign },
+                      { key: 'custom', label: 'Custom', color: 'teal', Icon: Wallet },
+                      { key: 'cash', label: 'Cash', color: 'emerald', Icon: Banknote },
                     ].map(({ key, label, color, Icon }) => {
                       const typeData = periodData.byAssetType?.[key]
                       if (!typeData || (typeData.previousValue === 0 && typeData.currentValue === 0)) {
@@ -688,6 +826,56 @@ export default function Portfolio() {
 
           const isCollapsed = collapsedSections.has(assetType)
           const typeStats = summary?.byAssetType?.[assetType] || {}
+          const activeFilter = sectionFilters[assetType]
+
+          // Get unique accounts, tickers, and industries for filter options
+          const accounts = [...new Set(holdings.map((h) => h.accountName))].sort()
+          const tickers = [...new Set(holdings.map((h) => h.ticker))].sort()
+          const industries = [...new Set(holdings.map((h) => h.industry).filter(Boolean))].sort()
+
+          // Apply filter
+          const filteredHoldings = activeFilter
+            ? holdings.filter((h) => {
+                if (activeFilter.type === 'account') return h.accountName === activeFilter.value
+                if (activeFilter.type === 'industry') return h.industry === activeFilter.value
+                return h.ticker === activeFilter.value
+              })
+            : holdings
+
+          // Compute displayed stats from filtered holdings
+          const displayStats = activeFilter
+            ? (() => {
+                const value = filteredHoldings.reduce((sum, h) => sum + (h.currentValue || 0), 0)
+                const cost = filteredHoldings.reduce((sum, h) => sum + (h.quantity * h.costBasis || 0), 0)
+                const gainLoss = value - cost
+                const gainLossPercent = cost > 0 ? (gainLoss / cost) * 100 : 0
+                return { value, gainLoss, gainLossPercent }
+              })()
+            : {
+                ...typeStats,
+                gainLossPercent: typeStats.cost > 0 ? (typeStats.gainLoss / typeStats.cost) * 100 : 0,
+              }
+
+          const setFilter = (type, value) => {
+            setSectionFilters((prev) => {
+              const current = prev[assetType]
+              // Toggle off if same filter clicked again
+              if (current?.type === type && current?.value === value) {
+                const next = { ...prev }
+                delete next[assetType]
+                return next
+              }
+              return { ...prev, [assetType]: { type, value } }
+            })
+          }
+
+          const clearFilter = () => {
+            setSectionFilters((prev) => {
+              const next = { ...prev }
+              delete next[assetType]
+              return next
+            })
+          }
 
           return (
             <div
@@ -708,61 +896,218 @@ export default function Portfolio() {
                   <config.icon className={`w-5 h-5 text-${config.color}-500`} />
                   <span className="font-semibold text-lg">{config.label}</span>
                   <span className="text-sm text-slate-400 bg-slate-700 px-2 py-0.5 rounded-full">
-                    {holdings.length}
+                    {activeFilter ? `${filteredHoldings.length}/${holdings.length}` : holdings.length}
                   </span>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
                     <div className="text-sm text-slate-400">Value</div>
-                    <div className="font-semibold">{formatCurrency(typeStats.value)}</div>
+                    <div className="font-semibold">{formatCurrency(displayStats.value)}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-slate-400">G/L</div>
-                    <div className={`font-semibold ${getGainLossColor(typeStats.gainLoss)}`}>
-                      {formatCurrency(typeStats.gainLoss)}
+                    <div className={`font-semibold ${getGainLossColor(displayStats.gainLoss)}`}>
+                      {formatCurrency(displayStats.gainLoss)}
+                      <span className="text-xs ml-1 opacity-75">
+                        {formatPercent(displayStats.gainLossPercent)}
+                      </span>
                     </div>
                   </div>
                 </div>
               </button>
 
+              {/* Filter Bar */}
+              {!isCollapsed && (accounts.length > 1 || tickers.length > 1 || industries.length > 1) && (
+                <div className="px-6 py-3 border-t border-slate-700 bg-slate-900/30 flex flex-wrap items-center gap-2">
+                  <Filter className="w-4 h-4 text-slate-500 shrink-0" />
+
+                  {/* Account filters */}
+                  {accounts.length > 1 && (
+                    <>
+                      <span className="text-xs text-slate-500 uppercase tracking-wider">Account:</span>
+                      {accounts.map((account) => (
+                        <button
+                          key={`acct-${account}`}
+                          onClick={() => setFilter('account', account)}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                            activeFilter?.type === 'account' && activeFilter?.value === account
+                              ? config.activeChip
+                              : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                          }`}
+                        >
+                          {account}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Divider */}
+                  {accounts.length > 1 && (tickers.length > 1 || industries.length > 1) && (
+                    <div className="w-px h-4 bg-slate-600 mx-1" />
+                  )}
+
+                  {/* Industry filters */}
+                  {industries.length > 1 && (
+                    <>
+                      <span className="text-xs text-slate-500 uppercase tracking-wider">Industry:</span>
+                      {industries.map((industry) => (
+                        <button
+                          key={`ind-${industry}`}
+                          onClick={() => setFilter('industry', industry)}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                            activeFilter?.type === 'industry' && activeFilter?.value === industry
+                              ? config.activeChip
+                              : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                          }`}
+                        >
+                          {industry}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Divider */}
+                  {industries.length > 1 && tickers.length > 1 && (
+                    <div className="w-px h-4 bg-slate-600 mx-1" />
+                  )}
+
+                  {/* Ticker filters */}
+                  {tickers.length > 1 && (
+                    <>
+                      <span className="text-xs text-slate-500 uppercase tracking-wider">Ticker:</span>
+                      {tickers.map((ticker) => (
+                        <button
+                          key={`tick-${ticker}`}
+                          onClick={() => setFilter('ticker', ticker)}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                            activeFilter?.type === 'ticker' && activeFilter?.value === ticker
+                              ? config.activeChip
+                              : 'border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300'
+                          }`}
+                        >
+                          {ticker}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Clear filter */}
+                  {activeFilter && (
+                    <button
+                      onClick={clearFilter}
+                      className="px-2 py-1 text-xs rounded-full border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-1"
+                    >
+                      <X className="w-3 h-3" />
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Holdings Table */}
-              {!isCollapsed && (
+              {!isCollapsed && assetType === 'cash' && (
                 <table className="w-full">
                   <thead>
                     <tr className="border-t border-slate-700 text-left bg-slate-900/50">
-                      <th className="px-6 py-3 text-slate-400 font-medium text-sm">
-                        Asset
-                      </th>
-                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
-                        Qty
-                      </th>
-                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
-                        Cost Basis
-                      </th>
-                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
-                        Price
-                      </th>
-                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
-                        Value
-                      </th>
-                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
-                        G/L
-                      </th>
-                      <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">
-                        Account
-                      </th>
+                      {[
+                        { key: 'accountName', label: 'Account', align: 'left', px: 'px-6' },
+                        { key: 'currentValue', label: 'Amount', align: 'right', px: 'px-4' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          onClick={() => handleSort(assetType, col.key)}
+                          className={`${col.px} py-3 text-slate-400 font-medium text-sm ${col.align === 'right' ? 'text-right' : ''} cursor-pointer select-none group hover:text-slate-200 transition-colors`}
+                        >
+                          <span className={`inline-flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : ''}`}>
+                            {col.label}
+                            <SortIcon assetType={assetType} column={col.key} />
+                          </span>
+                        </th>
+                      ))}
                       <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-700/50">
-                    {holdings.map((holding) => (
+                    {sortHoldings(filteredHoldings, assetType).map((holding) => (
+                      <tr key={holding.id} className="transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                              <Banknote className="w-5 h-5 text-emerald-400" />
+                            </div>
+                            <div className="font-semibold">{holding.accountName}</div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-right text-lg font-semibold text-emerald-400">
+                          {formatCurrency(holding.currentValue)}
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={(e) => openEditModal(holding, e)}
+                              className="p-2 hover:bg-slate-600/50 rounded-lg transition-colors text-slate-400 hover:text-slate-200"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleRemove(holding.id, e)}
+                              disabled={removingId === holding.id}
+                              className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-slate-400 hover:text-red-400"
+                              title="Remove"
+                            >
+                              {removingId === holding.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* Standard Holdings Table */}
+              {!isCollapsed && assetType !== 'cash' && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-t border-slate-700 text-left bg-slate-900/50">
+                      {[
+                        { key: 'ticker', label: 'Asset', align: 'left', px: 'px-6' },
+                        ...(industries.length > 0 ? [{ key: 'industry', label: 'Industry', align: 'left', px: 'px-4' }] : []),
+                        { key: 'quantity', label: 'Qty', align: 'right', px: 'px-4' },
+                        { key: 'costBasis', label: 'Cost Basis', align: 'right', px: 'px-4' },
+                        { key: 'currentPrice', label: 'Price', align: 'right', px: 'px-4' },
+                        { key: 'currentValue', label: 'Value', align: 'right', px: 'px-4' },
+                        { key: 'gainLossPercent', label: 'G/L', align: 'right', px: 'px-4' },
+                        { key: 'accountName', label: 'Account', align: 'right', px: 'px-4' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          onClick={() => handleSort(assetType, col.key)}
+                          className={`${col.px} py-3 text-slate-400 font-medium text-sm ${col.align === 'right' ? 'text-right' : ''} cursor-pointer select-none group hover:text-slate-200 transition-colors`}
+                        >
+                          <span className={`inline-flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : ''}`}>
+                            {col.label}
+                            <SortIcon assetType={assetType} column={col.key} />
+                          </span>
+                        </th>
+                      ))}
+                      <th className="px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {sortHoldings(filteredHoldings, assetType).map((holding) => (
                       <tr
                         key={holding.id}
                         onClick={() =>
-                          assetType !== 'crypto' && navigate(`/analysis/${holding.ticker}`)
+                          !['crypto', 'custom', 'cash'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
                         }
                         className={`${
-                          assetType !== 'crypto'
+                          !['crypto', 'custom', 'cash'].includes(assetType)
                             ? 'hover:bg-slate-700/30 cursor-pointer'
                             : ''
                         } transition-colors`}
@@ -792,6 +1137,13 @@ export default function Portfolio() {
                             </div>
                           </div>
                         </td>
+
+                        {/* Industry */}
+                        {industries.length > 0 && (
+                          <td className="px-4 py-4 text-sm text-slate-400 max-w-[140px] truncate">
+                            {holding.industry || '-'}
+                          </td>
+                        )}
 
                         {/* Quantity */}
                         <td className="px-4 py-4 text-right font-medium">
@@ -887,7 +1239,9 @@ export default function Portfolio() {
           <div className="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
               <h2 className="text-lg font-semibold">
-                {editingHolding ? 'Edit Holding' : 'Add Holding'}
+                {editingHolding
+                  ? editingHolding.assetType === 'cash' ? 'Edit Cash' : 'Edit Holding'
+                  : addType === 'cash' ? 'Add Cash' : 'Add Holding'}
               </h2>
               <button
                 onClick={closeModal}
@@ -904,7 +1258,36 @@ export default function Portfolio() {
                 </div>
               )}
 
-              {/* Ticker */}
+              {/* Type Toggle (only for new entries) */}
+              {!editingHolding && (
+                <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-1">
+                  <button
+                    type="button"
+                    onClick={() => setAddType('holding')}
+                    className={`flex-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      addType === 'holding'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Holding
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddType('cash')}
+                    className={`flex-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      addType === 'cash'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Cash
+                  </button>
+                </div>
+              )}
+
+              {/* Ticker (not for cash) */}
+              {addType !== 'cash' && !(editingHolding?.assetType === 'cash') && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
                   Ticker Symbol
@@ -940,8 +1323,10 @@ export default function Portfolio() {
                   />
                 )}
               </div>
+              )}
 
-              {/* Quantity */}
+              {/* Quantity (not for cash) */}
+              {addType !== 'cash' && !(editingHolding?.assetType === 'cash') && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
                   Quantity
@@ -955,11 +1340,12 @@ export default function Portfolio() {
                   className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-blue-500"
                 />
               </div>
+              )}
 
-              {/* Cost Basis */}
+              {/* Amount (for cash) / Cost Basis (for holdings) */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
-                  Cost Basis (per share/unit)
+                  {addType === 'cash' || editingHolding?.assetType === 'cash' ? 'Amount' : 'Cost Basis (per share/unit)'}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -1033,7 +1419,7 @@ export default function Portfolio() {
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {editingHolding ? 'Save Changes' : 'Add Holding'}
+                  {editingHolding ? 'Save Changes' : addType === 'cash' ? 'Add Cash' : 'Add Holding'}
                 </button>
               </div>
             </form>

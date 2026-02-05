@@ -58,12 +58,13 @@ class PortfolioSnapshotService:
         snapshots = self._load_snapshots()
         return today in snapshots
 
-    def save_snapshot(self, summary: Dict[str, Any]) -> Dict[str, Any]:
+    def save_snapshot(self, summary: Dict[str, Any], force: bool = False) -> Dict[str, Any]:
         """
-        Save a snapshot for today. Skips if already taken today.
+        Save a snapshot for today. Skips if already taken today unless force=True.
 
         Args:
             summary: Portfolio summary from the portfolio route's calculate_summary()
+            force: If True, overwrite today's existing snapshot (for manual snapshots)
 
         Returns:
             The snapshot that was saved (or existing one if already taken today)
@@ -71,8 +72,8 @@ class PortfolioSnapshotService:
         today = datetime.now().strftime("%Y-%m-%d")
         snapshots = self._load_snapshots()
 
-        # Skip if already have today's snapshot
-        if today in snapshots:
+        # Skip if already have today's snapshot (unless forced)
+        if today in snapshots and not force:
             return {"date": today, "alreadyExists": True, **snapshots[today]}
 
         snapshot = {
@@ -85,7 +86,7 @@ class PortfolioSnapshotService:
         }
 
         by_type = summary.get("byAssetType", {})
-        for asset_type in ["stock", "etf", "crypto"]:
+        for asset_type in ["stock", "etf", "crypto", "custom", "cash"]:
             type_data = by_type.get(asset_type, {})
             snapshot["byAssetType"][asset_type] = {
                 "value": type_data.get("value", 0),
@@ -186,7 +187,7 @@ class PortfolioSnapshotService:
 
             # Per-asset-type breakdown
             by_type = {}
-            for asset_type in ["stock", "etf", "crypto"]:
+            for asset_type in ["stock", "etf", "crypto", "custom", "cash"]:
                 past_type = past_snapshot.get("byAssetType", {}).get(asset_type, {})
                 current_type = latest.get("byAssetType", {}).get(asset_type, {})
 
