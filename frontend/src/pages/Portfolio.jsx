@@ -1599,10 +1599,10 @@ export default function Portfolio() {
                       <tr
                         key={holding.id}
                         onClick={() =>
-                          !['crypto', 'custom', 'cash', 'option'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
+                          !['crypto', 'custom', 'cash', 'option', 'etf'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
                         }
                         className={`${
-                          !['crypto', 'custom', 'cash', 'option'].includes(assetType)
+                          !['crypto', 'custom', 'cash', 'option', 'etf'].includes(assetType)
                             ? 'hover:bg-slate-700/30 cursor-pointer'
                             : ''
                         } transition-colors`}
