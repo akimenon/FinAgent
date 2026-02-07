@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { TrendingUp, LayoutDashboard, Star, Briefcase } from 'lucide-react'
+import { TrendingUp, LayoutDashboard, Star, Briefcase, Maximize2, Minimize2 } from 'lucide-react'
 import { companiesApi } from '../../services/api'
 
 // Category colors for visual distinction
@@ -11,7 +11,7 @@ const categoryColors = {
   commodity: 'border-yellow-500/30',
 }
 
-export default function NavBar() {
+export default function NavBar({ widescreen, setWidescreen }) {
   const [indices, setIndices] = useState([])
 
   useEffect(() => {
@@ -45,8 +45,10 @@ export default function NavBar() {
   }
 
   return (
-    <nav className="bg-slate-800 border-b border-slate-700">
-      <div className="container mx-auto px-4">
+    <nav className="bg-slate-800/80 backdrop-blur-xl border-b border-slate-700/50 sticky top-0 z-50">
+      <div className={`mx-auto transition-all duration-300 ${
+        widescreen ? 'max-w-[2400px] px-6' : 'max-w-7xl px-4'
+      }`}>
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center space-x-2 flex-shrink-0">
             <TrendingUp className="h-8 w-8 text-blue-500" />
@@ -102,6 +104,17 @@ export default function NavBar() {
               <Briefcase className="h-4 w-4" />
               <span className="hidden sm:inline">Portfolio</span>
             </Link>
+            <button
+              onClick={() => {
+                const next = !widescreen
+                localStorage.setItem('finagent-widescreen', String(next))
+                setWidescreen(next)
+              }}
+              className="p-2 rounded-md hover:bg-slate-700 transition-colors text-slate-400 hover:text-slate-200"
+              title="Widescreen mode"
+            >
+              {widescreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
           </div>
         </div>
       </div>

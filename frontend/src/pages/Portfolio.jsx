@@ -24,7 +24,21 @@ import {
   Banknote,
   Camera,
   Check,
+  Target,
+  Eye,
+  EyeOff,
+  Calendar,
 } from 'lucide-react'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
 import { portfolioApi } from '../services/api'
 import TickerSearch from '../components/search/TickerSearch'
 
@@ -65,6 +79,7 @@ const ASSET_TYPE_CONFIG = {
   crypto: { label: 'Crypto', icon: DollarSign, color: 'orange', activeChip: 'bg-orange-500/20 border-orange-500/50 text-orange-300' },
   custom: { label: 'Miscellaneous', icon: Wallet, color: 'teal', activeChip: 'bg-teal-500/20 border-teal-500/50 text-teal-300' },
   cash: { label: 'Cash', icon: Banknote, color: 'emerald', activeChip: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' },
+  option: { label: 'Options', icon: Target, color: 'rose', activeChip: 'bg-rose-500/20 border-rose-500/50 text-rose-300' },
 }
 
 export default function Portfolio() {
@@ -88,6 +103,7 @@ export default function Portfolio() {
   const [collapsedSections, setCollapsedSections] = useState(new Set())
   const [sectionFilters, setSectionFilters] = useState({}) // { [assetType]: { type: 'account'|'ticker', value: string } }
   const [sectionSort, setSectionSort] = useState({}) // { [assetType]: { key: string, direction: 'asc'|'desc' } }
+  const [showValues, setShowValues] = useState(() => sessionStorage.getItem('portfolio_showValues') === 'true')
 
   // Modal state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -100,6 +116,11 @@ export default function Portfolio() {
     costBasis: '',
     accountName: '',
     customAccount: '',
+    optionType: 'call',
+    strikePrice: '',
+    expirationDate: '',
+    underlyingTicker: '',
+    optionPrice: '',
   })
   const [formError, setFormError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -228,9 +249,9 @@ export default function Portfolio() {
   }
 
   // Re-fetch portfolio data without showing the full-page loading spinner
-  const refreshPortfolio = async () => {
+  const refreshPortfolio = async (forceRefresh = false) => {
     try {
-      const response = await portfolioApi.getAll()
+      const response = await portfolioApi.getAll(forceRefresh)
       setPortfolio(response.data)
     } catch (err) {
       console.error('Failed to refresh portfolio:', err)
@@ -240,7 +261,7 @@ export default function Portfolio() {
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
-      await Promise.all([refreshPortfolio(), loadPerformance()])
+      await Promise.all([refreshPortfolio(true), loadPerformance()])
     } catch (err) {
       console.error('Failed to refresh portfolio:', err)
     } finally {
@@ -337,6 +358,11 @@ export default function Portfolio() {
       costBasis: '',
       accountName: '',
       customAccount: '',
+      optionType: 'call',
+      strikePrice: '',
+      expirationDate: '',
+      underlyingTicker: '',
+      optionPrice: '',
     })
     setFormError(null)
     setEditingHolding(null)
@@ -356,6 +382,11 @@ export default function Portfolio() {
       customAccount: ACCOUNT_PRESETS.includes(holding.accountName)
         ? ''
         : holding.accountName,
+      optionType: holding.optionType || 'call',
+      strikePrice: holding.strikePrice?.toString() || '',
+      expirationDate: holding.expirationDate || '',
+      underlyingTicker: holding.underlyingTicker || '',
+      optionPrice: holding.optionPrice?.toString() || '',
     })
     setFormError(null)
     setEditingHolding(holding)
@@ -383,6 +414,8 @@ export default function Portfolio() {
     const isCashEdit = editingHolding?.assetType === 'cash'
     const isMisc = addType === 'misc' && !editingHolding
     const isMiscEdit = editingHolding?.assetType === 'custom'
+    const isOption = addType === 'option' && !editingHolding
+    const isOptionEdit = editingHolding?.assetType === 'option'
 
     if (isCash || isCashEdit) {
       if (!formData.costBasis || !accountName) {
@@ -397,6 +430,12 @@ export default function Portfolio() {
         setSubmitting(false)
         return
       }
+    } else if (isOption || isOptionEdit) {
+      if (!formData.underlyingTicker || !formData.strikePrice || !formData.expirationDate || !formData.quantity || !formData.costBasis || !accountName) {
+        setFormError('Please fill in all fields')
+        setSubmitting(false)
+        return
+      }
     } else if (!formData.ticker || !formData.quantity || !formData.costBasis || !accountName) {
       setFormError('Please fill in all fields')
       setSubmitting(false)
@@ -406,11 +445,19 @@ export default function Portfolio() {
     try {
       if (editingHolding) {
         // Update existing
-        await portfolioApi.update(editingHolding.id, {
+        const updateData = {
           quantity: (isCashEdit || isMiscEdit) ? 1 : parseFloat(formData.quantity),
           costBasis: parseFloat(formData.costBasis),
           accountName,
-        })
+        }
+        if (isOptionEdit) {
+          updateData.optionType = formData.optionType
+          updateData.strikePrice = parseFloat(formData.strikePrice)
+          updateData.expirationDate = formData.expirationDate
+          updateData.underlyingTicker = formData.underlyingTicker.toUpperCase()
+          if (formData.optionPrice) updateData.optionPrice = parseFloat(formData.optionPrice)
+        }
+        await portfolioApi.update(editingHolding.id, updateData)
       } else if (isCash) {
         // Add cash
         await portfolioApi.add({
@@ -430,6 +477,25 @@ export default function Portfolio() {
           accountName,
           assetType: 'custom',
         })
+      } else if (isOption) {
+        // Add option
+        const underlying = formData.underlyingTicker.toUpperCase()
+        const strike = parseFloat(formData.strikePrice)
+        const typeLabel = formData.optionType === 'call' ? 'C' : 'P'
+        const syntheticTicker = `${underlying} ${Math.round(strike)}${typeLabel}`
+        const addPayload = {
+          ticker: syntheticTicker,
+          quantity: parseFloat(formData.quantity),
+          costBasis: parseFloat(formData.costBasis),
+          accountName,
+          assetType: 'option',
+          optionType: formData.optionType,
+          strikePrice: strike,
+          expirationDate: formData.expirationDate,
+          underlyingTicker: underlying,
+        }
+        if (formData.optionPrice) addPayload.optionPrice = parseFloat(formData.optionPrice)
+        await portfolioApi.add(addPayload)
       } else {
         // Add new holding
         await portfolioApi.add({
@@ -449,13 +515,23 @@ export default function Portfolio() {
   }
 
   // Formatting helpers
+  const MASKED_VALUE = '$••••'
+
   const formatCurrency = (num) => {
     if (num === null || num === undefined) return 'N/A'
+    if (!showValues) return MASKED_VALUE
     const absNum = Math.abs(num)
     if (absNum >= 1e9) return `$${(num / 1e9).toFixed(2)}B`
     if (absNum >= 1e6) return `$${(num / 1e6).toFixed(2)}M`
     if (absNum >= 1e4) return `$${(num / 1e3).toFixed(2)}K`
     return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+
+  const formatDollar = (num, opts = {}) => {
+    if (num == null) return opts.fallback || 'N/A'
+    if (!showValues) return MASKED_VALUE
+    const { minimumFractionDigits = 2, maximumFractionDigits = 2 } = opts
+    return `$${num.toLocaleString(undefined, { minimumFractionDigits, maximumFractionDigits })}`
   }
 
   const formatPercent = (num) => {
@@ -470,7 +546,7 @@ export default function Portfolio() {
 
   // Group holdings by asset type
   const groupedHoldings = useMemo(() => {
-    const groups = { stock: [], etf: [], crypto: [], custom: [], cash: [] }
+    const groups = { stock: [], etf: [], crypto: [], custom: [], cash: [], option: [] }
     portfolio.holdings.forEach((holding) => {
       const type = holding.assetType || 'stock'
       if (groups[type]) {
@@ -580,6 +656,18 @@ export default function Portfolio() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowValues((v) => { const next = !v; sessionStorage.setItem('portfolio_showValues', next); return next })}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors border ${
+                showValues
+                  ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-600/30'
+                  : 'bg-slate-700 border-slate-600 text-slate-400 hover:bg-slate-600'
+              }`}
+              title={showValues ? 'Hide $ values' : 'Show $ values'}
+            >
+              {showValues ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              <span className="hidden sm:inline text-sm">{showValues ? 'Hide $' : 'Show $'}</span>
+            </button>
+            <button
               onClick={openAddModal}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
             >
@@ -620,80 +708,36 @@ export default function Portfolio() {
           </div>
         </div>
 
-        {/* Asset Type Breakdown Pills */}
-        {summary && summary.totalValue > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Stocks Pill */}
-            {summary.byAssetType?.stock?.value > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded-full">
-                <TrendingUp className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-medium text-blue-400">Stocks</span>
-                <span className="text-sm text-slate-300">
-                  {formatCurrency(summary.byAssetType.stock.value)}
-                </span>
-                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                  {((summary.byAssetType.stock.value / summary.totalValue) * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-
-            {/* ETFs Pill */}
-            {summary.byAssetType?.etf?.value > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 border border-purple-500/30 rounded-full">
-                <PieChart className="w-4 h-4 text-purple-400" />
-                <span className="text-sm font-medium text-purple-400">ETFs</span>
-                <span className="text-sm text-slate-300">
-                  {formatCurrency(summary.byAssetType.etf.value)}
-                </span>
-                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                  {((summary.byAssetType.etf.value / summary.totalValue) * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-
-            {/* Crypto Pill */}
-            {(summary.byAssetType?.crypto?.value || 0) > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-full">
-                <DollarSign className="w-4 h-4 text-orange-400" />
-                <span className="text-sm font-medium text-orange-400">Crypto</span>
-                <span className="text-sm text-slate-300">
-                  {formatCurrency(summary.byAssetType.crypto.value)}
-                </span>
-                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                  {((summary.byAssetType.crypto.value / summary.totalValue) * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-
-            {/* Miscellaneous Pill */}
-            {(summary.byAssetType?.custom?.value || 0) > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-teal-500/10 border border-teal-500/30 rounded-full">
-                <Wallet className="w-4 h-4 text-teal-400" />
-                <span className="text-sm font-medium text-teal-400">Misc</span>
-                <span className="text-sm text-slate-300">
-                  {formatCurrency(summary.byAssetType.custom.value)}
-                </span>
-                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                  {((summary.byAssetType.custom.value / summary.totalValue) * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-
-            {/* Cash Pill */}
-            {(summary.byAssetType?.cash?.value || 0) > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
-                <Banknote className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm font-medium text-emerald-400">Cash</span>
-                <span className="text-sm text-slate-300">
-                  {formatCurrency(summary.byAssetType.cash.value)}
-                </span>
-                <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
-                  {((summary.byAssetType.cash.value / summary.totalValue) * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Asset Type Breakdown Pills — sorted by allocation % descending */}
+        {summary && summary.totalValue > 0 && (() => {
+          const pillConfig = [
+            { key: 'stock',  label: 'Stocks',  Icon: TrendingUp,  pill: 'bg-blue-500/10 border-blue-500/30',     text: 'text-blue-400' },
+            { key: 'etf',    label: 'ETFs',    Icon: PieChart,    pill: 'bg-purple-500/10 border-purple-500/30', text: 'text-purple-400' },
+            { key: 'crypto', label: 'Crypto',  Icon: DollarSign,  pill: 'bg-orange-500/10 border-orange-500/30', text: 'text-orange-400' },
+            { key: 'custom', label: 'Misc',    Icon: Wallet,      pill: 'bg-teal-500/10 border-teal-500/30',     text: 'text-teal-400' },
+            { key: 'cash',   label: 'Cash',    Icon: Banknote,    pill: 'bg-emerald-500/10 border-emerald-500/30', text: 'text-emerald-400' },
+            { key: 'option', label: 'Options', Icon: Target,      pill: 'bg-rose-500/10 border-rose-500/30',     text: 'text-rose-400' },
+          ]
+          const sorted = pillConfig
+            .filter(p => (summary.byAssetType?.[p.key]?.value || 0) > 0)
+            .sort((a, b) => (summary.byAssetType[b.key].value || 0) - (summary.byAssetType[a.key].value || 0))
+          return (
+            <div className="flex flex-wrap items-center gap-2">
+              {sorted.map(({ key, label, Icon, pill, text }) => (
+                <div key={key} className={`flex items-center gap-2 px-3 py-1.5 border rounded-full ${pill}`}>
+                  <Icon className={`w-4 h-4 ${text}`} />
+                  <span className={`text-sm font-medium ${text}`}>{label}</span>
+                  <span className="text-sm text-slate-300">
+                    {formatCurrency(summary.byAssetType[key].value)}
+                  </span>
+                  <span className="text-xs text-slate-400 bg-slate-700/50 px-1.5 py-0.5 rounded">
+                    {((summary.byAssetType[key].value / summary.totalValue) * 100).toFixed(0)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Summary Cards */}
@@ -794,6 +838,142 @@ export default function Portfolio() {
                   </div>
                 </div>
 
+                {/* Portfolio Value Chart */}
+                {performance.history && performance.history.length >= 2 && (() => {
+                  const chartData = performance.history.map((s) => ({
+                    date: s.date,
+                    total: s.totalValue,
+                    stocks: s.byAssetType?.stock?.value || 0,
+                    etfs: s.byAssetType?.etf?.value || 0,
+                    crypto: s.byAssetType?.crypto?.value || 0,
+                    misc: s.byAssetType?.custom?.value || 0,
+                    cash: s.byAssetType?.cash?.value || 0,
+                    options: s.byAssetType?.option?.value || 0,
+                  }))
+
+                  const valueChange = chartData[chartData.length - 1].total - chartData[0].total
+                  const isPositive = valueChange >= 0
+
+                  const formatChartDate = (dateStr) => {
+                    const d = new Date(dateStr + 'T00:00:00')
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  }
+
+                  const ChartTooltip = ({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null
+                    return (
+                      <div className="bg-slate-900 border border-slate-600 rounded-lg p-3 shadow-lg text-sm">
+                        <p className="text-slate-400 text-xs mb-2">{formatChartDate(label)}</p>
+                        {payload.map((entry) => (
+                          <div key={entry.name} className="flex items-center justify-between gap-4">
+                            <span style={{ color: entry.color }}>{entry.name}</span>
+                            <span className="text-white font-medium">{formatCurrency(entry.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
+                              <stop offset="95%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="stockGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="etfGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#a855f7" stopOpacity={0.15} />
+                              <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="cryptoGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#f97316" stopOpacity={0.15} />
+                              <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="optionGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.15} />
+                              <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                          <XAxis
+                            dataKey="date"
+                            tickFormatter={formatChartDate}
+                            stroke="#64748b"
+                            tick={{ fill: '#64748b', fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            domain={['auto', 'auto']}
+                            stroke="#64748b"
+                            tick={{ fill: '#64748b', fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(val) => formatCurrency(val)}
+                            width={70}
+                          />
+                          <Tooltip content={<ChartTooltip />} />
+                          <Legend
+                            iconType="line"
+                            wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="total"
+                            name="Total"
+                            stroke={isPositive ? '#10b981' : '#ef4444'}
+                            strokeWidth={2.5}
+                            fill="url(#totalGradient)"
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="stocks"
+                            name="Stocks"
+                            stroke="#3b82f6"
+                            strokeWidth={1.5}
+                            fill="url(#stockGradient)"
+                            strokeDasharray="4 2"
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="etfs"
+                            name="ETFs"
+                            stroke="#a855f7"
+                            strokeWidth={1.5}
+                            fill="url(#etfGradient)"
+                            strokeDasharray="4 2"
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="crypto"
+                            name="Crypto"
+                            stroke="#f97316"
+                            strokeWidth={1.5}
+                            fill="url(#cryptoGradient)"
+                            strokeDasharray="4 2"
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="options"
+                            name="Options"
+                            stroke="#f43f5e"
+                            strokeWidth={1.5}
+                            fill="url(#optionGradient)"
+                            strokeDasharray="4 2"
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )
+                })()}
+
                 {/* Asset Type Breakdown */}
                 <div>
                   <div className="text-sm text-slate-400 mb-3">Change by Asset Type</div>
@@ -804,6 +984,7 @@ export default function Portfolio() {
                       { key: 'crypto', label: 'Crypto', color: 'orange', Icon: DollarSign },
                       { key: 'custom', label: 'Miscellaneous', color: 'teal', Icon: Wallet },
                       { key: 'cash', label: 'Cash', color: 'emerald', Icon: Banknote },
+                      { key: 'option', label: 'Options', color: 'rose', Icon: Target },
                     ].map(({ key, label, color, Icon }) => {
                       const typeData = periodData.byAssetType?.[key]
                       if (!typeData || (typeData.previousValue === 0 && typeData.currentValue === 0)) {
@@ -1044,7 +1225,144 @@ export default function Portfolio() {
                 </div>
               )}
 
-              {/* Holdings Table */}
+              {/* Options Table */}
+              {!isCollapsed && assetType === 'option' && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-t border-slate-700 text-left bg-slate-900/50">
+                      {[
+                        { key: 'underlyingTicker', label: 'Underlying', align: 'left', px: 'px-6' },
+                        { key: 'optionType', label: 'Type', align: 'left', px: 'px-4' },
+                        { key: 'strikePrice', label: 'Strike', align: 'right', px: 'px-4' },
+                        { key: 'expirationDate', label: 'Expiration', align: 'right', px: 'px-4' },
+                        { key: 'quantity', label: 'Contracts', align: 'right', px: 'px-4' },
+                        { key: 'costBasis', label: 'Premium', align: 'right', px: 'px-4' },
+                        { key: 'currentPrice', label: 'Price', align: 'right', px: 'px-4' },
+                        { key: 'currentValue', label: 'Value', align: 'right', px: 'px-4' },
+                        { key: 'gainLossPercent', label: 'G/L', align: 'right', px: 'px-4' },
+                        { key: 'accountName', label: 'Account', align: 'right', px: 'px-4' },
+                      ].map((col) => (
+                        <th
+                          key={col.key}
+                          onClick={() => handleSort(assetType, col.key)}
+                          className={`${col.px} py-3 text-slate-400 font-medium text-sm ${col.align === 'right' ? 'text-right' : ''} cursor-pointer select-none group hover:text-slate-200 transition-colors`}
+                        >
+                          <span className={`inline-flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : ''}`}>
+                            {col.label}
+                            <SortIcon assetType={assetType} column={col.key} />
+                          </span>
+                        </th>
+                      ))}
+                      <th className="px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {sortHoldings(filteredHoldings, assetType).map((holding) => (
+                      <tr key={holding.id} className="transition-colors">
+                        {/* Underlying */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center">
+                              <Target className="w-5 h-5 text-rose-400" />
+                            </div>
+                            <div className="font-semibold">{holding.underlyingTicker || holding.ticker}</div>
+                          </div>
+                        </td>
+                        {/* Type */}
+                        <td className="px-4 py-4">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            holding.optionType === 'call'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {holding.optionType === 'call' ? 'CALL' : 'PUT'}
+                          </span>
+                        </td>
+                        {/* Strike */}
+                        <td className="px-4 py-4 text-right font-medium">
+                          {holding.strikePrice != null ? formatDollar(holding.strikePrice) : '-'}
+                        </td>
+                        {/* Expiration */}
+                        <td className="px-4 py-4 text-right text-sm text-slate-300">
+                          {holding.expirationDate || '-'}
+                        </td>
+                        {/* Contracts */}
+                        <td className="px-4 py-4 text-right font-medium">
+                          {holding.quantity}
+                        </td>
+                        {/* Premium */}
+                        <td className="px-4 py-4 text-right">
+                          {formatDollar(holding.costBasis)}
+                        </td>
+                        {/* Current Price */}
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {holding.currentPrice != null
+                              ? formatDollar(holding.currentPrice)
+                              : '-'}
+                            {holding.livePrice && (
+                              <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 leading-none">
+                                LIVE
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        {/* Value */}
+                        <td className="px-4 py-4 text-right font-semibold">
+                          {formatCurrency(holding.currentValue)}
+                        </td>
+                        {/* G/L */}
+                        <td className="px-4 py-4 text-right">
+                          <div className={getGainLossColor(holding.gainLoss)}>
+                            <div className="font-semibold">
+                              {formatCurrency(holding.gainLoss)}
+                            </div>
+                            <div className="text-sm flex items-center justify-end gap-1">
+                              {holding.gainLossPercent != null && holding.gainLossPercent >= 0 && (
+                                <TrendingUp className="w-3 h-3" />
+                              )}
+                              {holding.gainLossPercent != null && holding.gainLossPercent < 0 && (
+                                <TrendingDown className="w-3 h-3" />
+                              )}
+                              {formatPercent(holding.gainLossPercent)}
+                            </div>
+                          </div>
+                        </td>
+                        {/* Account */}
+                        <td className="px-4 py-4 text-right text-sm text-slate-400">
+                          {holding.accountName}
+                        </td>
+                        {/* Actions */}
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={(e) => openEditModal(holding, e)}
+                              className="p-2 hover:bg-slate-600/50 rounded-lg transition-colors text-slate-400 hover:text-slate-200"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleRemove(holding.id, e)}
+                              disabled={removingId === holding.id}
+                              className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-slate-400 hover:text-red-400"
+                              title="Remove"
+                            >
+                              {removingId === holding.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* Cash Table */}
               {!isCollapsed && assetType === 'cash' && (
                 <table className="w-full">
                   <thead>
@@ -1111,7 +1429,7 @@ export default function Portfolio() {
               )}
 
               {/* Standard Holdings Table */}
-              {!isCollapsed && assetType !== 'cash' && (
+              {!isCollapsed && assetType !== 'cash' && assetType !== 'option' && (
                 <table className="w-full">
                   <thead>
                     <tr className="border-t border-slate-700 text-left bg-slate-900/50">
@@ -1123,6 +1441,7 @@ export default function Portfolio() {
                         { key: 'currentPrice', label: 'Price', align: 'right', px: 'px-4' },
                         { key: 'currentValue', label: 'Value', align: 'right', px: 'px-4' },
                         { key: 'gainLossPercent', label: 'G/L', align: 'right', px: 'px-4' },
+                        ...(assetType === 'stock' ? [{ key: 'nextEarningsDate', label: 'Earnings', align: 'right', px: 'px-4' }] : []),
                         { key: 'accountName', label: 'Account', align: 'right', px: 'px-4' },
                       ].map((col) => (
                         <th
@@ -1144,10 +1463,10 @@ export default function Portfolio() {
                       <tr
                         key={holding.id}
                         onClick={() =>
-                          !['crypto', 'custom', 'cash'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
+                          !['crypto', 'custom', 'cash', 'option'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
                         }
                         className={`${
-                          !['crypto', 'custom', 'cash'].includes(assetType)
+                          !['crypto', 'custom', 'cash', 'option'].includes(assetType)
                             ? 'hover:bg-slate-700/30 cursor-pointer'
                             : ''
                         } transition-colors`}
@@ -1194,20 +1513,12 @@ export default function Portfolio() {
 
                         {/* Cost Basis */}
                         <td className="px-4 py-4 text-right">
-                          ${holding.costBasis.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {formatDollar(holding.costBasis)}
                         </td>
 
                         {/* Current Price */}
                         <td className="px-4 py-4 text-right">
-                          {holding.currentPrice != null
-                            ? `$${holding.currentPrice.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`
-                            : 'N/A'}
+                          {formatDollar(holding.currentPrice)}
                         </td>
 
                         {/* Current Value */}
@@ -1234,6 +1545,29 @@ export default function Portfolio() {
                             </div>
                           </div>
                         </td>
+
+                        {/* Next Earnings (stocks only) */}
+                        {assetType === 'stock' && (
+                          <td className="px-4 py-4 text-right text-sm">
+                            {holding.nextEarningsDate ? (() => {
+                              const daysUntil = Math.ceil((new Date(holding.nextEarningsDate + 'T00:00:00') - new Date()) / (1000 * 60 * 60 * 24))
+                              const dateLabel = new Date(holding.nextEarningsDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                              return (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <Calendar className="w-3 h-3 text-slate-500" />
+                                  <span className={daysUntil <= 7 ? 'text-amber-400 font-medium' : 'text-slate-300'}>
+                                    {dateLabel}
+                                  </span>
+                                  <span className={`text-xs ${daysUntil <= 7 ? 'text-amber-400/70' : 'text-slate-500'}`}>
+                                    ({daysUntil}d)
+                                  </span>
+                                </div>
+                              )
+                            })() : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                        )}
 
                         {/* Account */}
                         <td className="px-4 py-4 text-right text-sm text-slate-400">
@@ -1282,9 +1616,11 @@ export default function Portfolio() {
                 {editingHolding
                   ? editingHolding.assetType === 'cash' ? 'Edit Cash'
                     : editingHolding.assetType === 'custom' ? 'Edit Miscellaneous'
+                    : editingHolding.assetType === 'option' ? 'Edit Option'
                     : 'Edit Holding'
                   : addType === 'cash' ? 'Add Cash'
                     : addType === 'misc' ? 'Add Miscellaneous'
+                    : addType === 'option' ? 'Add Option'
                     : 'Add Holding'}
               </h2>
               <button
@@ -1338,6 +1674,17 @@ export default function Portfolio() {
                   >
                     Misc
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddType('option')}
+                    className={`flex-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      addType === 'option'
+                        ? 'bg-rose-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Option
+                  </button>
                 </div>
               )}
 
@@ -1382,8 +1729,124 @@ export default function Portfolio() {
                 </div>
               )}
 
-              {/* Ticker (not for cash or misc) */}
-              {addType === 'holding' && !(editingHolding?.assetType === 'cash') && !(editingHolding?.assetType === 'custom') && (
+              {/* Option Fields */}
+              {(addType === 'option' || editingHolding?.assetType === 'option') && (
+                <>
+                  {/* Underlying Ticker */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Underlying Ticker
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.underlyingTicker}
+                      onChange={(e) => setFormData({ ...formData, underlyingTicker: e.target.value.toUpperCase() })}
+                      placeholder="e.g., AAPL"
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+
+                  {/* Option Type (Call/Put toggle) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Option Type
+                    </label>
+                    <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-1 border border-slate-600">
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, optionType: 'call' })}
+                        className={`flex-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                          formData.optionType === 'call'
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Call
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, optionType: 'put' })}
+                        className={`flex-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                          formData.optionType === 'put'
+                            ? 'bg-red-600 text-white'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Put
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Strike Price */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Strike Price
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={formData.strikePrice}
+                        onChange={(e) => setFormData({ ...formData, strikePrice: e.target.value })}
+                        placeholder="e.g., 200"
+                        className="w-full pl-8 pr-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Expiration Date */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Expiration Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.expirationDate}
+                      onChange={(e) => setFormData({ ...formData, expirationDate: e.target.value })}
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+
+                  {/* Contracts */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Contracts
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                      placeholder="e.g., 5"
+                      className="w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+
+                  {/* Current Price (optional — for G/L calculation) */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      Current Price <span className="text-slate-500 font-normal">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={formData.optionPrice}
+                        onChange={(e) => setFormData({ ...formData, optionPrice: e.target.value })}
+                        placeholder="e.g., 4.20"
+                        className="w-full pl-8 pr-4 py-2 bg-slate-900 border border-slate-600 rounded-lg focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">Leave blank to use premium as current value</p>
+                  </div>
+                </>
+              )}
+
+              {/* Ticker (not for cash, misc, or option) */}
+              {addType === 'holding' && !(editingHolding?.assetType === 'cash') && !(editingHolding?.assetType === 'custom') && !(editingHolding?.assetType === 'option') && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
                   Ticker Symbol
@@ -1421,8 +1884,8 @@ export default function Portfolio() {
               </div>
               )}
 
-              {/* Quantity (not for cash or misc) */}
-              {addType === 'holding' && !(editingHolding?.assetType === 'cash') && !(editingHolding?.assetType === 'custom') && (
+              {/* Quantity (not for cash, misc, or option — options have Contracts field above) */}
+              {addType === 'holding' && !(editingHolding?.assetType === 'cash') && !(editingHolding?.assetType === 'custom') && !(editingHolding?.assetType === 'option') && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">
                   Quantity
@@ -1445,7 +1908,9 @@ export default function Portfolio() {
                     ? 'Amount'
                     : addType === 'misc' || editingHolding?.assetType === 'custom'
                       ? 'Investment Amount'
-                      : 'Cost Basis (per share/unit)'}
+                      : addType === 'option' || editingHolding?.assetType === 'option'
+                        ? 'Premium per Contract'
+                        : 'Cost Basis (per share/unit)'}
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -1519,7 +1984,7 @@ export default function Portfolio() {
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {editingHolding ? 'Save Changes' : addType === 'cash' ? 'Add Cash' : addType === 'misc' ? 'Add Investment' : 'Add Holding'}
+                  {editingHolding ? 'Save Changes' : addType === 'cash' ? 'Add Cash' : addType === 'misc' ? 'Add Investment' : addType === 'option' ? 'Add Option' : 'Add Holding'}
                 </button>
               </div>
             </form>

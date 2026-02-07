@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 from pathlib import Path
+from datetime import datetime
 import asyncio
 import json
 
@@ -15,9 +16,53 @@ from services.portfolio_service import portfolio_service, categorize_ticker
 from services.crypto_service import crypto_service
 from services.portfolio_snapshot_service import portfolio_snapshot_service
 from services.fmp_cache import fmp_cache
+from services.options_service import options_service
 
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
+
+
+def _extract_next_earnings_date(
+    earnings_calendar: list, earnings_history: list = None
+) -> Optional[str]:
+    """
+    Extract the next upcoming earnings date string.
+    Tries confirmed earnings calendar first, falls back to earnings history
+    (future dates where epsActual is null).
+    """
+    today = datetime.now().date()
+    upcoming = []
+
+    # Primary source: confirmed earnings calendar
+    if earnings_calendar:
+        for entry in earnings_calendar:
+            date_str = entry.get("date")
+            if not date_str:
+                continue
+            try:
+                earnings_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if earnings_date >= today:
+                    upcoming.append((earnings_date, date_str))
+            except ValueError:
+                continue
+
+    # Fallback: earnings history (future dates with no actual results)
+    if not upcoming and earnings_history:
+        for entry in earnings_history:
+            date_str = entry.get("date")
+            if not date_str:
+                continue
+            try:
+                earnings_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if earnings_date >= today and entry.get("epsActual") is None:
+                    upcoming.append((earnings_date, date_str))
+            except ValueError:
+                continue
+
+    if not upcoming:
+        return None
+    upcoming.sort(key=lambda x: x[0])
+    return upcoming[0][1]
 
 PIN_FILE = Path(__file__).parent.parent / "data" / "portfolio" / "pin.json"
 
@@ -53,13 +98,23 @@ class AddHoldingRequest(BaseModel):
     quantity: float
     costBasis: float
     accountName: str
-    assetType: Optional[str] = None  # stock, etf, or crypto - auto-detected if not provided
+    assetType: Optional[str] = None  # stock, etf, crypto, custom, cash, option
+    optionType: Optional[str] = None  # "call" or "put"
+    strikePrice: Optional[float] = None
+    expirationDate: Optional[str] = None
+    underlyingTicker: Optional[str] = None
+    optionPrice: Optional[float] = None  # current market price per contract
 
 
 class UpdateHoldingRequest(BaseModel):
     quantity: Optional[float] = None
     costBasis: Optional[float] = None
     accountName: Optional[str] = None
+    optionType: Optional[str] = None
+    strikePrice: Optional[float] = None
+    expirationDate: Optional[str] = None
+    underlyingTicker: Optional[str] = None
+    optionPrice: Optional[float] = None
 
 
 @router.post("/verify-pin")
@@ -97,9 +152,12 @@ async def remove_pin(request: VerifyPinRequest):
 
 
 @router.get("")
-async def get_portfolio():
+async def get_portfolio(refresh: bool = False):
     """
     Get all portfolio holdings with current prices and ROI calculations.
+
+    Args:
+        refresh: If True, bypass price caches and fetch fresh prices.
 
     Returns holdings grouped by asset type with:
     - Current price
@@ -123,6 +181,7 @@ async def get_portfolio():
                     "crypto": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
                     "custom": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
                     "cash": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
+                    "option": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
                 },
             },
             "count": 0,
@@ -132,7 +191,8 @@ async def get_portfolio():
     crypto_holdings = [h for h in holdings if h.get("assetType") == "crypto"]
     custom_holdings = [h for h in holdings if h.get("assetType") == "custom"]
     cash_holdings = [h for h in holdings if h.get("assetType") == "cash"]
-    stock_etf_holdings = [h for h in holdings if h.get("assetType") not in ("crypto", "custom", "cash")]
+    option_holdings = [h for h in holdings if h.get("assetType") == "option"]
+    stock_etf_holdings = [h for h in holdings if h.get("assetType") not in ("crypto", "custom", "cash", "option")]
 
     # Fetch prices in parallel
     enriched_holdings = []
@@ -141,13 +201,33 @@ async def get_portfolio():
     async def fetch_stock_price(holding):
         ticker = holding["ticker"]
         try:
-            profile = await fmp_cache.get("profile", ticker)
+            profile_task = fmp_cache.get("profile", ticker, force_refresh=refresh)
+            # Only fetch earnings for stocks (not ETFs)
+            is_stock = holding.get("assetType") == "stock"
+            if is_stock:
+                earnings_cal_task = fmp_cache.get("earnings_calendar", ticker)
+                earnings_hist_task = fmp_cache.get("earnings", ticker)
+                profile, earnings_cal, earnings_hist = await asyncio.gather(
+                    profile_task, earnings_cal_task, earnings_hist_task
+                )
+            else:
+                profile = await profile_task
+                earnings_cal = None
+                earnings_hist = None
+
             price = profile.get("price") if profile else None
             name = profile.get("companyName") if profile else None
             image = profile.get("image") if profile else None
             industry = profile.get("industry") if profile else None
 
-            return enrich_holding(holding, price, name, image, industry)
+            next_earnings_date = None
+            if is_stock:
+                next_earnings_date = _extract_next_earnings_date(earnings_cal, earnings_hist)
+
+            enriched = enrich_holding(holding, price, name, image, industry)
+            if next_earnings_date:
+                enriched["nextEarningsDate"] = next_earnings_date
+            return enriched
         except Exception as e:
             print(f"Error fetching price for {ticker}: {e}")
             return enrich_holding(holding, None, None, None, None)
@@ -156,7 +236,7 @@ async def get_portfolio():
     crypto_prices = {}
     if crypto_holdings:
         crypto_tickers = list(set(h["ticker"] for h in crypto_holdings))
-        crypto_prices = await crypto_service.get_prices_batch(crypto_tickers)
+        crypto_prices = await crypto_service.get_prices_batch(crypto_tickers, force_refresh=refresh)
 
     def enrich_crypto_holding(holding):
         ticker = holding["ticker"]
@@ -215,6 +295,35 @@ async def get_portfolio():
         amount = holding.get("costBasis", 0)
         enriched_holdings.append(enrich_holding(holding, amount, "Cash", None))
 
+    # Enrich option holdings (each contract = 100 shares)
+    # Try live pricing from Tradier first, then fall back to manual optionPrice/costBasis
+    live_option_prices = {}
+    if option_holdings:
+        live_option_prices = await options_service.get_option_prices_batch(option_holdings)
+
+    for holding in option_holdings:
+        quantity = holding.get("quantity", 0)
+        premium = holding.get("costBasis", 0)
+        # Priority: live API price > manual optionPrice > costBasis (premium)
+        live_price = live_option_prices.get(holding["id"])
+        option_price = live_price if live_price is not None else holding.get("optionPrice", premium)
+        total_cost = quantity * premium * 100
+        current_value = quantity * option_price * 100
+        gain_loss = current_value - total_cost
+        gain_loss_pct = (gain_loss / total_cost * 100) if total_cost > 0 else 0
+        enriched_holdings.append({
+            **holding,
+            "name": holding["ticker"],
+            "image": None,
+            "industry": None,
+            "currentPrice": option_price,
+            "currentValue": current_value,
+            "totalCost": total_cost,
+            "gainLoss": gain_loss,
+            "gainLossPercent": gain_loss_pct,
+            "livePrice": live_price is not None,
+        })
+
     # Calculate summary
     summary = calculate_summary(enriched_holdings)
 
@@ -238,6 +347,7 @@ def calculate_summary(holdings):
             "crypto": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
             "custom": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
             "cash": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
+            "option": {"count": 0, "value": 0, "cost": 0, "gainLoss": 0},
         },
     }
 
@@ -278,7 +388,7 @@ async def add_holding(request: AddHoldingRequest):
     # Validate ticker exists (for stocks/ETFs)
     asset_type = request.assetType or categorize_ticker(request.ticker)
 
-    if asset_type not in ("crypto", "custom", "cash"):
+    if asset_type not in ("crypto", "custom", "cash", "option"):
         # Verify stock/ETF exists via FMP
         profile = await fmp_cache.get("profile", request.ticker.upper())
         if not profile:
@@ -296,6 +406,11 @@ async def add_holding(request: AddHoldingRequest):
         cost_basis=request.costBasis,
         account_name=request.accountName,
         asset_type=asset_type,
+        option_type=request.optionType,
+        strike_price=request.strikePrice,
+        expiration_date=request.expirationDate,
+        underlying_ticker=request.underlyingTicker,
+        option_price=request.optionPrice,
     )
 
     return {
@@ -316,6 +431,11 @@ async def update_holding(holding_id: str, request: UpdateHoldingRequest):
         quantity=request.quantity,
         cost_basis=request.costBasis,
         account_name=request.accountName,
+        option_type=request.optionType,
+        strike_price=request.strikePrice,
+        expiration_date=request.expirationDate,
+        underlying_ticker=request.underlyingTicker,
+        option_price=request.optionPrice,
     )
 
     return {
@@ -344,7 +464,8 @@ async def take_snapshot(force: bool = False):
     crypto_holdings = [h for h in holdings if h.get("assetType") == "crypto"]
     custom_holdings = [h for h in holdings if h.get("assetType") == "custom"]
     cash_holdings = [h for h in holdings if h.get("assetType") == "cash"]
-    stock_etf_holdings = [h for h in holdings if h.get("assetType") not in ("crypto", "custom", "cash")]
+    option_holdings = [h for h in holdings if h.get("assetType") == "option"]
+    stock_etf_holdings = [h for h in holdings if h.get("assetType") not in ("crypto", "custom", "cash", "option")]
 
     enriched_holdings = []
 
@@ -383,6 +504,30 @@ async def take_snapshot(force: bool = False):
     # Cash holdings: cost basis = value
     for holding in cash_holdings:
         enriched_holdings.append(_enrich_for_snapshot(holding, holding.get("costBasis", 0)))
+
+    # Option holdings (each contract = 100 shares)
+    # Try live pricing from Tradier first, then fall back to manual
+    live_option_prices = {}
+    if option_holdings:
+        live_option_prices = await options_service.get_option_prices_batch(option_holdings)
+
+    for holding in option_holdings:
+        quantity = holding.get("quantity", 0)
+        premium = holding.get("costBasis", 0)
+        live_price = live_option_prices.get(holding["id"])
+        option_price = live_price if live_price is not None else holding.get("optionPrice", premium)
+        total_cost = quantity * premium * 100
+        current_value = quantity * option_price * 100
+        gain_loss = current_value - total_cost
+        gain_loss_pct = (gain_loss / total_cost * 100) if total_cost > 0 else 0
+        enriched_holdings.append({
+            **holding,
+            "currentPrice": option_price,
+            "currentValue": current_value,
+            "totalCost": total_cost,
+            "gainLoss": gain_loss,
+            "gainLossPercent": gain_loss_pct,
+        })
 
     summary = calculate_summary(enriched_holdings)
     snapshot = portfolio_snapshot_service.save_snapshot(summary, force=force)

@@ -37,6 +37,8 @@ export const financialsApi = {
   getAnalystRatings: (symbol) => api.get(`/financials/${symbol}/analyst-ratings`),
   getEarningsCalendar: (days = 7) =>
     api.get('/financials/earnings-calendar', { params: { days } }),
+  insightsChat: (symbol, question, history = []) =>
+    api.post(`/financials/${symbol}/insights-chat`, { question, history }),
   clearCache: (symbol) => api.delete(`/financials/${symbol}/cache`),
 }
 
@@ -58,7 +60,7 @@ export const portfolioApi = {
   setPin: (pin, currentPin = '') =>
     api.post('/portfolio/set-pin', { pin, current_pin: currentPin }),
   removePin: (pin) => api.delete('/portfolio/pin', { data: { pin } }),
-  getAll: () => api.get('/portfolio'),
+  getAll: (refresh = false) => api.get('/portfolio', { params: refresh ? { refresh: true } : {} }),
   get: (holdingId) => api.get(`/portfolio/${holdingId}`),
   add: (holding) => api.post('/portfolio', holding),
   update: (holdingId, data) => api.put(`/portfolio/${holdingId}`, data),

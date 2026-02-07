@@ -1,4 +1,8 @@
+import json
+
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import List
 from datetime import datetime, timedelta
 import asyncio
 
@@ -11,6 +15,16 @@ from agents.analysis_agent import AnalysisAgent
 from agents.guidance_tracker import GuidanceTrackerAgent
 from agents.deep_insights_agent import deep_insights_agent
 from utils import safe_float, safe_int, find_price_near_date, calc_pct_change
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class InsightsChatRequest(BaseModel):
+    question: str
+    history: List[ChatMessage] = []
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
 
@@ -115,9 +129,11 @@ async def get_deep_insights(symbol: str, refresh: bool = False):
     if not refresh:
         cached_insights = insights_cache.get(symbol)
         if cached_insights:
+            provider = cached_insights.get("_meta", {}).get("provider", "ollama")
             return {
                 "symbol": symbol,
                 "fromCache": True,
+                "provider": provider,
                 "insights": cached_insights
             }
 
@@ -169,13 +185,18 @@ async def get_deep_insights(symbol: str, refresh: bool = False):
         print(f"[DEEP INSIGHTS] Running LLM analysis for {symbol}...")
         insights = await deep_insights_agent.analyze(comprehensive_data)
 
+        # Calculate TTL based on next earnings date
+        ttl_hours = _get_insights_ttl(safe_result(earnings))
+
         # Cache the results
         if insights.get("_meta", {}).get("success", True):
-            insights_cache.set(symbol, insights)
+            insights_cache.set(symbol, insights, ttl_hours=ttl_hours)
 
+        provider = insights.get("_meta", {}).get("provider", "ollama")
         return {
             "symbol": symbol,
             "fromCache": False,
+            "provider": provider,
             "insights": insights
         }
 
@@ -198,6 +219,65 @@ async def invalidate_deep_insights_cache(symbol: str):
         "invalidated": invalidated,
         "message": f"Cache {'cleared' if invalidated else 'was not present'} for {symbol.upper()}"
     }
+
+
+@router.post("/{symbol}/insights-chat")
+async def insights_chat(symbol: str, request: InsightsChatRequest):
+    """
+    Chat about a company's deep analysis insights.
+    Uses the cached deep insights as context so users can ask follow-up questions.
+    """
+    symbol = symbol.upper()
+
+    # Load cached insights
+    cached_insights = insights_cache.get(symbol)
+    if not cached_insights:
+        raise HTTPException(
+            status_code=404,
+            detail="No deep analysis found. Run Deep Analysis first."
+        )
+
+    # Determine which LLM provider to use based on what generated the insights
+    provider = cached_insights.get("_meta", {}).get("provider", "ollama")
+
+    try:
+        if provider == "claude":
+            from services.claude_llm_service import claude_llm_service
+            llm = claude_llm_service
+        else:
+            from services.llm_service import llm_service
+            llm = llm_service
+
+        # Strip _meta from insights context
+        insights_context = {k: v for k, v in cached_insights.items() if k != "_meta"}
+
+        system_prompt = (
+            f"You are a financial analyst continuing a conversation about {symbol}. "
+            f"Below is a comprehensive analysis that was previously generated. "
+            f"Answer the user's questions based on this analysis. "
+            f"Be concise, use abbreviated numbers (e.g. $57.0B not $57,006,000,000), "
+            f"and reference specific data points from the analysis.\n\n"
+            f"=== ANALYSIS CONTEXT ===\n{json.dumps(insights_context, default=str)}"
+        )
+
+        # Build messages from history + new question
+        messages = [{"role": m.role, "content": m.content} for m in request.history]
+        messages.append({"role": "user", "content": request.question})
+
+        answer = llm.chat(
+            messages=messages,
+            system=system_prompt,
+            temperature=0.3,
+            max_tokens=1500,
+        )
+
+        return {"answer": answer, "provider": provider}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat failed: {str(e)}"
+        )
 
 
 @router.get("/{symbol}/overview")
@@ -483,6 +563,40 @@ def _get_next_earnings(earnings_calendar: list, earnings_history: list = None) -
         "epsEstimate": next_earnings["epsEstimate"],
         "revenueEstimate": next_earnings["revenueEstimate"],
     }
+
+
+def _get_insights_ttl(earnings_history: list) -> int:
+    """
+    Calculate insights cache TTL in hours based on next earnings date.
+    Cache until the next earnings report since financials don't change before then.
+
+    Returns:
+        TTL in hours (min 24h, max 90 days, default 7 days if no date found)
+    """
+    today = datetime.now().date()
+
+    if earnings_history:
+        for entry in earnings_history:
+            date_str = entry.get("date")
+            if not date_str:
+                continue
+            try:
+                earnings_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                # Future date with no actual results = next earnings
+                if earnings_date > today and entry.get("epsActual") is None:
+                    days_until = (earnings_date - today).days
+                    # Add 1 day buffer past earnings for new data to land
+                    ttl_hours = (days_until + 1) * 24
+                    # Clamp: min 24h, max 90 days
+                    ttl_hours = max(24, min(ttl_hours, 90 * 24))
+                    print(f"[INSIGHTS TTL] {days_until} days until next earnings → TTL: {ttl_hours}h")
+                    return ttl_hours
+            except ValueError:
+                continue
+
+    # No upcoming earnings found — default to 7 days
+    print("[INSIGHTS TTL] No next earnings date found → default 7 days")
+    return 7 * 24
 
 
 def _process_revenue_pillars(product_seg: list, geo_seg: list) -> dict:
@@ -1097,17 +1211,16 @@ async def get_cache_status(symbol: str):
 @router.delete("/{symbol}/cache")
 async def clear_symbol_cache(symbol: str):
     """
-    Clear all cached data for a symbol to force fresh API calls.
-    Clears both FMP API cache and LLM insights cache.
+    Clear FMP API cache for a symbol to force fresh API calls.
+    Deep insights cache is preserved (use DELETE /{symbol}/deep-insights/cache to clear it).
     """
     symbol = symbol.upper()
     fmp_cache.clear_cache(symbol)
-    insights_invalidated = insights_cache.invalidate(symbol)
     return {
-        "message": f"All cache cleared for {symbol}",
+        "message": f"FMP cache cleared for {symbol}",
         "symbol": symbol,
         "fmpCacheCleared": True,
-        "insightsCacheCleared": insights_invalidated
+        "insightsCacheCleared": False
     }
 
 
