@@ -8,7 +8,11 @@ the industry without any hardcoded rules.
 
 from typing import Dict, List, Any, Optional
 import json
+import logging
 from services.llm_service import llm_service
+from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_float(value, default=0):
@@ -135,8 +139,87 @@ You must respond with valid JSON matching this structure:
     "beginnerExplanation": "string - 3-4 sentence summary a beginner investor would understand. What is this company, is it doing well or poorly, and what's the main thing to watch?"
 }"""
 
+    CLAUDE_SYSTEM_PROMPT = """You are a top-tier buy-side equity analyst writing an internal investment memo.
+You have 20+ years of experience and your fund pays you to find alpha — not to summarize.
+
+## YOUR MANDATE
+
+Skip the preamble. No "let me analyze" or "here's my take." Just go straight to the analysis like a pro writing for other pros.
+
+## ANALYSIS FRAMEWORK
+
+1. **SNAPSHOT**: In 2-3 sentences, what is this company RIGHT NOW? Not the Wikipedia version — the investor version. What's the current narrative, and is the market pricing it correctly?
+
+2. **WHAT THE NUMBERS SAY**: Don't just recite metrics. Tell the STORY the numbers are telling:
+   - Revenue trajectory: accelerating, decelerating, or inflecting?
+   - Margin story: expanding from operating leverage, or compressing from competition?
+   - Cash generation: is the business a cash machine or a cash incinerator?
+   - Balance sheet: fortress or house of cards?
+   Use specific numbers. Compare quarters. Show the trend.
+
+3. **BULL CASE** (3-5 points): What goes RIGHT? Be specific and quantitative.
+   - Not "AI could help" but "AI segment grew 40% QoQ to $X.XB, if it sustains this becomes a $XXB business by 2026"
+
+4. **BEAR CASE** (3-5 points): What goes WRONG? Be honest, not balanced for the sake of balance.
+   - Not "competition could increase" but "AWS and Azure are both offering similar services at 30% lower pricing"
+
+5. **HIDDEN SIGNALS**: What are 2-3 things in the data that most analysts are NOT talking about?
+   - Inventory building that signals demand weakness?
+   - SBC creeping up faster than revenue?
+   - Geographic concentration risk?
+   - Deferred revenue changes signaling future revenue shifts?
+
+6. **VERDICT**: Give a clear conviction call:
+   - Conviction level: HIGH_BUY, LEAN_BULL, NEUTRAL, LEAN_BEAR, or HIGH_SELL
+   - 2-3 sentence reasoning
+   - The ONE thing that would change your mind
+   - Price target logic (not a specific price, but the framework: "trading at X multiple, deserves Y because Z")
+
+## NUMBER FORMATTING (CRITICAL)
+
+ALWAYS format large dollar amounts in abbreviated format:
+- Billions: "$50.5B" NOT "$50,534,000,000"
+- Millions: "$125.5M" NOT "$125,500,000"
+- Keep 1 decimal place (e.g., "$57.0B", "$2.3M")
+
+## RESPONSE FORMAT (JSON ONLY)
+
+You must respond with valid JSON matching this structure:
+{
+    "snapshot": "string - 2-3 sentence investor snapshot of the company right now",
+    "numbersSay": "string - multi-paragraph narrative of what the financial data reveals (revenue, margins, cash flow, balance sheet)",
+    "bullCase": ["string - specific bull point 1", "string - specific bull point 2", "..."],
+    "bearCase": ["string - specific bear point 1", "string - specific bear point 2", "..."],
+    "hiddenSignals": ["string - hidden signal 1", "string - hidden signal 2", "..."],
+    "verdict": {
+        "conviction": "HIGH_BUY | LEAN_BULL | NEUTRAL | LEAN_BEAR | HIGH_SELL",
+        "reasoning": "string - 2-3 sentence reasoning for the conviction",
+        "keyMonitor": "string - the ONE thing that would change your mind",
+        "priceTargetLogic": "string - valuation framework and what multiple the stock deserves"
+    }
+}
+
+Return ONLY valid JSON. No markdown, no commentary outside the JSON."""
+
     def __init__(self):
-        self.llm = llm_service
+        self.use_claude = settings.USE_CLAUDE_FOR_DEEP_INSIGHTS
+        self.provider = "ollama"
+
+        if self.use_claude:
+            if not settings.ANTHROPIC_API_KEY:
+                logger.warning(
+                    "USE_CLAUDE_FOR_DEEP_INSIGHTS is enabled but ANTHROPIC_API_KEY is not set. "
+                    "Falling back to Ollama."
+                )
+                self.use_claude = False
+            else:
+                from services.claude_llm_service import claude_llm_service
+                self.llm = claude_llm_service
+                self.provider = "claude"
+                logger.info("Deep Insights Agent using Claude API")
+
+        if not self.use_claude:
+            self.llm = llm_service
 
     async def analyze(self, comprehensive_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -156,22 +239,31 @@ You must respond with valid JSON matching this structure:
         industry = comprehensive_data.get("profile", {}).get("industry", "Unknown")
 
         try:
-            response_text = self.llm.chat(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"""Perform a comprehensive deep-dive analysis of {company_name} ({symbol}) - a {industry} company.
+            if self.use_claude:
+                system_prompt = self.CLAUDE_SYSTEM_PROMPT
+                max_tokens = 4096
+                user_content = f"""Analyze this company. Here is all the financial data I have:
+
+{context}
+
+Give me the full analysis: bull case, bear case, hidden signals, and your verdict.
+What's the honest prediction here - where is this stock likely headed and why?"""
+            else:
+                system_prompt = self.SYSTEM_PROMPT
+                max_tokens = 3500
+                user_content = f"""Perform a comprehensive deep-dive analysis of {company_name} ({symbol}) - a {industry} company.
 
 {context}
 
 Analyze this data thoroughly and provide insights that regular retail investors would miss.
 Focus on what matters MOST for this specific industry.
 Return your analysis as a JSON object following the specified format. Return ONLY valid JSON."""
-                    }
-                ],
-                system=self.SYSTEM_PROMPT,
-                temperature=0.4,  # Slightly higher for more insightful analysis
-                max_tokens=3500,  # More tokens for comprehensive analysis
+
+            response_text = self.llm.chat(
+                messages=[{"role": "user", "content": user_content}],
+                system=system_prompt,
+                temperature=0.4,
+                max_tokens=max_tokens,
             )
 
             # Clean up potential markdown formatting
@@ -181,7 +273,8 @@ Return your analysis as a JSON object following the specified format. Return ONL
             result["_meta"] = {
                 "symbol": symbol,
                 "analyzedAt": self._get_timestamp(),
-                "success": True
+                "success": True,
+                "provider": self.provider,
             }
             return result
 
@@ -456,7 +549,8 @@ Debt/Equity: {latest_ratios.get('debtEquityRatio', 'N/A')}
                 "symbol": profile.get("symbol", "N/A"),
                 "analyzedAt": self._get_timestamp(),
                 "success": False,
-                "error": f"JSON parsing failed: {error}"
+                "error": f"JSON parsing failed: {error}",
+                "provider": "ollama",  # fallback always uses Ollama schema shape
             }
         }
 
@@ -480,7 +574,8 @@ Debt/Equity: {latest_ratios.get('debtEquityRatio', 'N/A')}
                 "symbol": profile.get("symbol", "N/A"),
                 "analyzedAt": self._get_timestamp(),
                 "success": False,
-                "error": error
+                "error": error,
+                "provider": "ollama",  # error always uses Ollama schema shape
             }
         }
 

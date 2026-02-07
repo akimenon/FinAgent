@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:14b"
 
+    # Claude API (Deep Insights feature flag)
+    ANTHROPIC_API_KEY: str = ""
+    USE_CLAUDE_FOR_DEEP_INSIGHTS: bool = False
+
+    # Tradier API (free sandbox for live options pricing)
+    TRADIER_API_KEY: str = ""
+
     # Application
     DEBUG: bool = False
     CORS_ORIGINS: list = ["http://localhost:5173", "http://localhost:3000"]

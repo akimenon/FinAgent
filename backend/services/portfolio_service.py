@@ -113,6 +113,11 @@ class PortfolioService:
         cost_basis: float,
         account_name: str,
         asset_type: str = None,
+        option_type: str = None,
+        strike_price: float = None,
+        expiration_date: str = None,
+        underlying_ticker: str = None,
+        option_price: float = None,
     ) -> Dict[str, Any]:
         """Add a new holding to the portfolio."""
         ticker = ticker.upper()
@@ -133,6 +138,19 @@ class PortfolioService:
             "addedAt": datetime.now().isoformat(),
         }
 
+        # Store option metadata
+        if asset_type == "option":
+            if option_type is not None:
+                holding["optionType"] = option_type
+            if strike_price is not None:
+                holding["strikePrice"] = strike_price
+            if expiration_date is not None:
+                holding["expirationDate"] = expiration_date
+            if underlying_ticker is not None:
+                holding["underlyingTicker"] = underlying_ticker
+            if option_price is not None:
+                holding["optionPrice"] = option_price
+
         portfolio["holdings"][holding_id] = holding
         self._save_portfolio(portfolio)
 
@@ -144,6 +162,11 @@ class PortfolioService:
         quantity: float = None,
         cost_basis: float = None,
         account_name: str = None,
+        option_type: str = None,
+        strike_price: float = None,
+        expiration_date: str = None,
+        underlying_ticker: str = None,
+        option_price: float = None,
     ) -> Optional[Dict[str, Any]]:
         """Update an existing holding."""
         portfolio = self._load_portfolio()
@@ -159,6 +182,16 @@ class PortfolioService:
             holding["costBasis"] = cost_basis
         if account_name is not None:
             holding["accountName"] = account_name
+        if option_type is not None:
+            holding["optionType"] = option_type
+        if strike_price is not None:
+            holding["strikePrice"] = strike_price
+        if expiration_date is not None:
+            holding["expirationDate"] = expiration_date
+        if underlying_ticker is not None:
+            holding["underlyingTicker"] = underlying_ticker
+        if option_price is not None:
+            holding["optionPrice"] = option_price
 
         holding["updatedAt"] = datetime.now().isoformat()
 
@@ -198,6 +231,7 @@ class PortfolioService:
                 "crypto": [],
                 "custom": [],
                 "cash": [],
+                "option": [],
             },
             "accounts": set(),
         }

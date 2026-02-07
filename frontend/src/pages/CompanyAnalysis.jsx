@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -30,7 +30,10 @@ import {
   Shield,
   Star,
   RefreshCw,
+  Send,
+  MessageCircle,
 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import { financialsApi, watchlistApi } from '../services/api'
 import PriceChart from '../components/charts/PriceChart'
 
@@ -73,6 +76,131 @@ const getConsensusColor = (rating) => {
 const formatPriceChange = (value, decimals = 1) => {
   if (value == null) return 'N/A'
   return `${value >= 0 ? '+' : ''}${value.toFixed(decimals)}%`
+}
+
+// Conviction badge colors for Claude insights
+const convictionConfig = {
+  HIGH_BUY:   { label: 'High Buy',   bg: 'bg-emerald-500/20', border: 'border-emerald-500/40', text: 'text-emerald-300' },
+  LEAN_BULL:  { label: 'Lean Bull',  bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+  NEUTRAL:    { label: 'Neutral',    bg: 'bg-slate-500/20',   border: 'border-slate-500/40',   text: 'text-slate-300'   },
+  LEAN_BEAR:  { label: 'Lean Bear',  bg: 'bg-red-500/10',     border: 'border-red-500/30',     text: 'text-red-400'     },
+  HIGH_SELL:  { label: 'High Sell',  bg: 'bg-red-500/20',     border: 'border-red-500/40',     text: 'text-red-300'     },
+}
+
+// Claude-specific insights renderer
+const ClaudeInsightsView = ({ insights }) => {
+  const verdict = insights?.verdict || {}
+  const conviction = convictionConfig[verdict.conviction] || convictionConfig.NEUTRAL
+
+  return (
+    <div className="space-y-6">
+      {/* Snapshot */}
+      {insights.snapshot && (
+        <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-blue-400 mb-2 flex items-center gap-2">
+            <Info className="w-4 h-4" />
+            Snapshot
+          </h3>
+          <p className="text-sm text-slate-300 leading-relaxed">{insights.snapshot}</p>
+        </div>
+      )}
+
+      {/* What The Numbers Say */}
+      {insights.numbersSay && (
+        <div className="bg-slate-800/50 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" />
+            What The Numbers Say
+          </h3>
+          <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{insights.numbersSay}</p>
+        </div>
+      )}
+
+      {/* Bull & Bear Cases */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Bull Case */}
+        {insights.bullCase?.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Bull Case
+            </h3>
+            <div className="space-y-2">
+              {insights.bullCase.map((point, i) => (
+                <div key={i} className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                  <p className="text-sm text-emerald-300">{point}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Bear Case */}
+        {insights.bearCase?.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-red-400 mb-3 flex items-center gap-2">
+              <TrendingDown className="w-4 h-4" />
+              Bear Case
+            </h3>
+            <div className="space-y-2">
+              {insights.bearCase.map((point, i) => (
+                <div key={i} className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                  <p className="text-sm text-red-300">{point}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Hidden Signals */}
+      {insights.hiddenSignals?.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-amber-400 mb-3 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Hidden Signals
+          </h3>
+          <div className="space-y-2">
+            {insights.hiddenSignals.map((signal, i) => (
+              <div key={i} className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <p className="text-sm text-amber-300">{signal}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Verdict */}
+      {verdict.conviction && (
+        <div className={`${conviction.bg} border ${conviction.border} rounded-lg p-5`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Target className="w-4 h-4" />
+              Verdict
+            </h3>
+            <span className={`px-3 py-1 rounded-full text-sm font-bold ${conviction.bg} ${conviction.text} border ${conviction.border}`}>
+              {conviction.label}
+            </span>
+          </div>
+          {verdict.reasoning && (
+            <p className="text-sm text-slate-300 mb-3">{verdict.reasoning}</p>
+          )}
+          {verdict.keyMonitor && (
+            <div className="bg-slate-900/50 rounded-lg p-3 mb-3">
+              <h4 className="text-xs font-medium text-slate-400 mb-1">Key Monitor (What Would Change This Call)</h4>
+              <p className="text-sm text-slate-300">{verdict.keyMonitor}</p>
+            </div>
+          )}
+          {verdict.priceTargetLogic && (
+            <div className="bg-slate-900/50 rounded-lg p-3">
+              <h4 className="text-xs font-medium text-slate-400 mb-1">Price Target Logic</h4>
+              <p className="text-sm text-slate-300">{verdict.priceTargetLogic}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // Helper component for metric rows in 4Q comparison table
@@ -164,6 +292,12 @@ export default function CompanyAnalysis() {
   const [deepInsightsLoading, setDeepInsightsLoading] = useState(false)
   const [deepInsightsExpanded, setDeepInsightsExpanded] = useState(false)
 
+  // Insights Chat (session-only)
+  const [insightsChat, setInsightsChat] = useState([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatContainerRef = useRef(null)
+
   // Revenue Drivers view mode
   const [revenueView, setRevenueView] = useState('quarterly') // 'quarterly', 'annual', '4q'
 
@@ -187,6 +321,8 @@ export default function CompanyAnalysis() {
   // Load overview and chart on mount
   useEffect(() => {
     setImageError(false) // Reset image error on symbol change
+    setInsightsChat([]) // Reset chat on symbol change
+    setChatInput('')
     loadOverview()
     loadMarketFeed()
     loadPriceChart()
@@ -267,12 +403,8 @@ export default function CompanyAnalysis() {
 
     setIsRefreshing(true)
     try {
-      // Clear all cache for this symbol
+      // Clear FMP data cache (preserves deep insights cache)
       await financialsApi.clearCache(symbol)
-
-      // Reset deep insights state
-      setDeepInsights(null)
-      setDeepInsightsExpanded(false)
 
       // Reset section data
       setSectionData({})
@@ -359,6 +491,32 @@ export default function CompanyAnalysis() {
       setDeepInsightsLoading(false)
     }
   }
+
+  // Send a chat message about the deep insights
+  const handleChatSubmit = async () => {
+    if (!chatInput.trim() || chatLoading) return
+    const question = chatInput.trim()
+    const history = [...insightsChat]
+
+    setInsightsChat(prev => [...prev, { role: 'user', content: question }])
+    setChatInput('')
+    setChatLoading(true)
+
+    try {
+      const response = await financialsApi.insightsChat(symbol, question, history)
+      setInsightsChat(prev => [...prev, { role: 'assistant', content: response.data.answer }])
+    } catch {
+      setInsightsChat(prev => [...prev, { role: 'assistant', content: 'Failed to get response. Please try again.' }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // Auto-scroll chat container to bottom (without moving the page)
+  useEffect(() => {
+    const el = chatContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [insightsChat, chatLoading])
 
   // Loading state
   if (overviewLoading) {
@@ -850,10 +1008,19 @@ export default function CompanyAnalysis() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Deep Analysis</h2>
-                <p className="text-xs text-slate-400">LLM-powered insights for {profile?.industry || 'this company'}</p>
+                <p className="text-xs text-slate-400">{deepInsights?.provider === 'claude' ? 'Claude' : 'LLM'}-powered insights for {profile?.industry || 'this company'}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {deepInsights?.provider && !deepInsightsLoading && (
+                <span className={`text-xs px-2 py-1 rounded-full ${
+                  deepInsights.provider === 'claude'
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                }`}>
+                  {deepInsights.provider === 'claude' ? 'Claude Sonnet 4.5' : 'Qwen 2.5 14B'}
+                </span>
+              )}
               {deepInsights?.cached && (
                 <span className="text-xs px-2 py-1 rounded-full bg-slate-700 text-slate-400">
                   Cached
@@ -911,6 +1078,11 @@ export default function CompanyAnalysis() {
           {/* Insights Content */}
           {deepInsights?.insights && deepInsightsExpanded && !deepInsightsLoading && (
             <div className="px-6 pb-6 space-y-6">
+              {/* Claude provider renders bull/bear/verdict layout */}
+              {deepInsights.provider === 'claude' ? (
+                <ClaudeInsightsView insights={deepInsights.insights} />
+              ) : (
+              <>
               {/* Industry Context */}
               {deepInsights.insights.industryContext && (
                 <div className="bg-slate-800/50 rounded-lg p-4">
@@ -1089,17 +1261,86 @@ export default function CompanyAnalysis() {
                   </div>
                 )}
               </div>
+              </>
+              )}
 
               {/* Refresh Button */}
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between">
+                {deepInsights.insights?._meta?.analyzedAt && (
+                  <span className="text-xs text-slate-500">
+                    Generated {new Date(deepInsights.insights._meta.analyzedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                )}
                 <button
                   onClick={() => loadDeepInsights(true)}
                   disabled={deepInsightsLoading}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-lg text-sm transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-lg text-sm transition-colors ml-auto"
                 >
                   <History className="w-4 h-4" />
                   Refresh Analysis
                 </button>
+              </div>
+
+              {/* Insights Chat */}
+              <div className="mt-6 rounded-xl bg-gradient-to-r from-purple-500/10 via-blue-500/10 to-purple-500/10 border border-purple-500/20 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 bg-gradient-to-br from-purple-500/30 to-blue-500/30 rounded-lg">
+                    <MessageCircle className="w-3.5 h-3.5 text-purple-300" />
+                  </div>
+                  <span className="text-sm font-semibold bg-gradient-to-r from-purple-300 to-blue-300 bg-clip-text text-transparent">
+                    Ask about this analysis
+                  </span>
+                </div>
+
+                {/* Chat messages */}
+                {insightsChat.length > 0 && (
+                  <div ref={chatContainerRef} className="max-h-96 overflow-y-auto mb-3 space-y-3 scroll-smooth">
+                    {insightsChat.map((msg, i) => (
+                      <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                          msg.role === 'user'
+                            ? 'bg-blue-600/30 border border-blue-500/30 text-blue-100'
+                            : 'bg-slate-800/80 border border-slate-600/30 text-slate-200'
+                        }`}>
+                          {msg.role === 'user' ? (
+                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                          ) : (
+                            <div className="ai-analysis [&>p:last-child]:mb-0">
+                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {chatLoading && (
+                      <div className="flex justify-start">
+                        <div className="bg-slate-800/80 border border-slate-600/30 rounded-lg px-3 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Input bar */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleChatSubmit()}
+                    placeholder="e.g. What's the biggest risk? Why lean bull?"
+                    className="flex-1 bg-slate-900/60 border border-purple-500/20 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-400/50 focus:ring-1 focus:ring-purple-400/20 transition-all"
+                    disabled={chatLoading}
+                  />
+                  <button
+                    onClick={handleChatSubmit}
+                    disabled={!chatInput.trim() || chatLoading}
+                    className="px-3 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-40 rounded-lg transition-all shadow-lg shadow-purple-500/10"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}

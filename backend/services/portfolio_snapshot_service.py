@@ -86,7 +86,7 @@ class PortfolioSnapshotService:
         }
 
         by_type = summary.get("byAssetType", {})
-        for asset_type in ["stock", "etf", "crypto", "custom", "cash"]:
+        for asset_type in ["stock", "etf", "crypto", "custom", "cash", "option"]:
             type_data = by_type.get(asset_type, {})
             snapshot["byAssetType"][asset_type] = {
                 "value": type_data.get("value", 0),
@@ -129,9 +129,10 @@ class PortfolioSnapshotService:
 
     def get_nearest_snapshot(self, target_date: str) -> Optional[Dict[str, Any]]:
         """
-        Get the nearest snapshot to a target date (looking backwards).
-        Useful for comparisons like "1 week ago" when we might not have
-        an exact snapshot for that day.
+        Get the nearest snapshot to a target date.
+        Looks backwards up to 3 days first, then forwards to find the
+        closest available snapshot. This ensures performance data is shown
+        even when snapshot history is limited.
         """
         snapshots = self._load_snapshots()
         if not snapshots:
@@ -143,6 +144,13 @@ class PortfolioSnapshotService:
             check_date = (target - timedelta(days=i)).strftime("%Y-%m-%d")
             if check_date in snapshots:
                 return {"date": check_date, **snapshots[check_date]}
+
+        # No snapshot found nearby — use the oldest available snapshot
+        # that's still before the latest (so we have something to compare)
+        sorted_dates = sorted(snapshots.keys())
+        if len(sorted_dates) >= 2:
+            oldest = sorted_dates[0]
+            return {"date": oldest, **snapshots[oldest]}
 
         return None
 
@@ -187,7 +195,7 @@ class PortfolioSnapshotService:
 
             # Per-asset-type breakdown
             by_type = {}
-            for asset_type in ["stock", "etf", "crypto", "custom", "cash"]:
+            for asset_type in ["stock", "etf", "crypto", "custom", "cash", "option"]:
                 past_type = past_snapshot.get("byAssetType", {}).get(asset_type, {})
                 current_type = latest.get("byAssetType", {}).get(asset_type, {})
 

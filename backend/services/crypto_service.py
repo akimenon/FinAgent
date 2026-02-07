@@ -136,11 +136,11 @@ class CryptoService:
         return result.get(ticker.upper())
 
     async def get_prices_batch(
-        self, tickers: list[str]
+        self, tickers: list[str], force_refresh: bool = False
     ) -> Dict[str, Optional[Dict[str, Any]]]:
         """Get prices for multiple crypto tickers. Uses 12h file cache."""
         results = {}
-        cached = self._read_cache()
+        cached = {} if force_refresh else self._read_cache()
 
         # Check which tickers we already have cached
         tickers_to_fetch = []
