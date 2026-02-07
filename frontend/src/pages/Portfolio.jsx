@@ -38,6 +38,9 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell,
 } from 'recharts'
 import { portfolioApi } from '../services/api'
 import TickerSearch from '../components/search/TickerSearch'
@@ -128,6 +131,9 @@ export default function Portfolio() {
   // Performance state
   const [performance, setPerformance] = useState(null)
   const [selectedPeriod, setSelectedPeriod] = useState('1W')
+  const [showAssetBreakdown, setShowAssetBreakdown] = useState(false)
+  const [showPerformance, setShowPerformance] = useState(true)
+  const [pieModalType, setPieModalType] = useState(null)
 
   // On mount: always check backend for PIN status
   useEffect(() => {
@@ -774,31 +780,41 @@ export default function Portfolio() {
       {/* Weekly Performance Section */}
       {portfolio.holdings.length > 0 && performance?.periods && (
         <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-700">
+          <div
+            className="px-6 py-4 border-b border-slate-700 cursor-pointer hover:bg-slate-700/30 transition-colors"
+            onClick={() => setShowPerformance((prev) => !prev)}
+          >
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {showPerformance ? (
+                  <ChevronDown className="w-5 h-5 text-slate-400" />
+                ) : (
+                  <ChevronRight className="w-5 h-5 text-slate-400" />
+                )}
                 <Activity className="w-5 h-5 text-blue-500" />
                 <h2 className="text-lg font-semibold">Performance</h2>
               </div>
-              <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-1">
-                {['1W', '1M', '3M', 'YTD'].map((period) => (
-                  <button
-                    key={period}
-                    onClick={() => setSelectedPeriod(period)}
-                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                      selectedPeriod === period
-                        ? 'bg-blue-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {period}
-                  </button>
-                ))}
-              </div>
+              {showPerformance && (
+                <div className="flex items-center gap-1 bg-slate-900 rounded-lg p-1" onClick={(e) => e.stopPropagation()}>
+                  {['1W', '1M', '3M', 'YTD'].map((period) => (
+                    <button
+                      key={period}
+                      onClick={() => setSelectedPeriod(period)}
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        selectedPeriod === period
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {period}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          {(() => {
+          {showPerformance && (() => {
             const periodData = performance.periods[selectedPeriod]
             if (!periodData) {
               return (
@@ -838,7 +854,7 @@ export default function Portfolio() {
                   </div>
                 </div>
 
-                {/* Portfolio Value Chart */}
+                {/* Portfolio Total Value Chart */}
                 {performance.history && performance.history.length >= 2 && (() => {
                   const chartData = performance.history.map((s) => ({
                     date: s.date,
@@ -874,102 +890,147 @@ export default function Portfolio() {
                     )
                   }
 
+                  const hasBreakdownData = chartData.some(
+                    (d) => d.stocks > 0 || d.etfs > 0 || d.crypto > 0 || d.cash > 0
+                  )
+
                   return (
-                    <div className="h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
-                              <stop offset="95%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="stockGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
-                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="etfGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#a855f7" stopOpacity={0.15} />
-                              <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="cryptoGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#f97316" stopOpacity={0.15} />
-                              <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="optionGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.15} />
-                              <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                          <XAxis
-                            dataKey="date"
-                            tickFormatter={formatChartDate}
-                            stroke="#64748b"
-                            tick={{ fill: '#64748b', fontSize: 11 }}
-                            tickLine={false}
-                            axisLine={false}
-                            interval="preserveStartEnd"
-                          />
-                          <YAxis
-                            domain={['auto', 'auto']}
-                            stroke="#64748b"
-                            tick={{ fill: '#64748b', fontSize: 11 }}
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(val) => formatCurrency(val)}
-                            width={70}
-                          />
-                          <Tooltip content={<ChartTooltip />} />
-                          <Legend
-                            iconType="line"
-                            wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="total"
-                            name="Total"
-                            stroke={isPositive ? '#10b981' : '#ef4444'}
-                            strokeWidth={2.5}
-                            fill="url(#totalGradient)"
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="stocks"
-                            name="Stocks"
-                            stroke="#3b82f6"
-                            strokeWidth={1.5}
-                            fill="url(#stockGradient)"
-                            strokeDasharray="4 2"
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="etfs"
-                            name="ETFs"
-                            stroke="#a855f7"
-                            strokeWidth={1.5}
-                            fill="url(#etfGradient)"
-                            strokeDasharray="4 2"
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="crypto"
-                            name="Crypto"
-                            stroke="#f97316"
-                            strokeWidth={1.5}
-                            fill="url(#cryptoGradient)"
-                            strokeDasharray="4 2"
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="options"
-                            name="Options"
-                            stroke="#f43f5e"
-                            strokeWidth={1.5}
-                            fill="url(#optionGradient)"
-                            strokeDasharray="4 2"
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* Total Value Chart */}
+                      <div>
+                        <div className="text-sm text-slate-400 mb-2">Total Portfolio Value</div>
+                        <div className="h-56">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
+                                  <stop offset="95%" stopColor={isPositive ? '#10b981' : '#ef4444'} stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                              <XAxis
+                                dataKey="date"
+                                tickFormatter={formatChartDate}
+                                stroke="#64748b"
+                                tick={{ fill: '#64748b', fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={false}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis
+                                domain={['auto', 'auto']}
+                                stroke="#64748b"
+                                tick={{ fill: '#64748b', fontSize: 11 }}
+                                tickLine={false}
+                                axisLine={false}
+                                tickFormatter={(val) => formatCurrency(val)}
+                                width={70}
+                              />
+                              <Tooltip content={<ChartTooltip />} />
+                              <Area
+                                type="monotone"
+                                dataKey="total"
+                                name="Total"
+                                stroke={isPositive ? '#10b981' : '#ef4444'}
+                                strokeWidth={2.5}
+                                fill="url(#totalGradient)"
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      {/* Asset Type Breakdown Chart */}
+                      {hasBreakdownData && (
+                        <div>
+                          <div className="text-sm text-slate-400 mb-2">Value by Asset Type</div>
+                          <div className="h-56">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                <defs>
+                                  <linearGradient id="stockGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
+                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                  </linearGradient>
+                                  <linearGradient id="etfGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.15} />
+                                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                                  </linearGradient>
+                                  <linearGradient id="cryptoGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.15} />
+                                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                                  </linearGradient>
+                                  <linearGradient id="cashGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
+                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                                <XAxis
+                                  dataKey="date"
+                                  tickFormatter={formatChartDate}
+                                  stroke="#64748b"
+                                  tick={{ fill: '#64748b', fontSize: 11 }}
+                                  tickLine={false}
+                                  axisLine={false}
+                                  interval="preserveStartEnd"
+                                />
+                                <YAxis
+                                  domain={['auto', 'auto']}
+                                  stroke="#64748b"
+                                  tick={{ fill: '#64748b', fontSize: 11 }}
+                                  tickLine={false}
+                                  axisLine={false}
+                                  tickFormatter={(val) => formatCurrency(val)}
+                                  width={70}
+                                />
+                                <Tooltip content={<ChartTooltip />} />
+                                <Legend
+                                  iconType="line"
+                                  wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey="stocks"
+                                  name="Stocks"
+                                  stroke="#3b82f6"
+                                  strokeWidth={1.5}
+                                  fill="url(#stockGradient)"
+                                  strokeDasharray="4 2"
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey="etfs"
+                                  name="ETFs"
+                                  stroke="#a855f7"
+                                  strokeWidth={1.5}
+                                  fill="url(#etfGradient)"
+                                  strokeDasharray="4 2"
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey="crypto"
+                                  name="Crypto"
+                                  stroke="#f97316"
+                                  strokeWidth={1.5}
+                                  fill="url(#cryptoGradient)"
+                                  strokeDasharray="4 2"
+                                />
+                                <Area
+                                  type="monotone"
+                                  dataKey="cash"
+                                  name="Cash"
+                                  stroke="#10b981"
+                                  strokeWidth={1.5}
+                                  fill="url(#cashGradient)"
+                                  strokeDasharray="4 2"
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })()}
@@ -978,29 +1039,56 @@ export default function Portfolio() {
                 <div>
                   <div className="text-sm text-slate-400 mb-3">Change by Asset Type</div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {[
-                      { key: 'stock', label: 'Stocks', color: 'blue', Icon: TrendingUp },
-                      { key: 'etf', label: 'ETFs', color: 'purple', Icon: PieChart },
-                      { key: 'crypto', label: 'Crypto', color: 'orange', Icon: DollarSign },
-                      { key: 'custom', label: 'Miscellaneous', color: 'teal', Icon: Wallet },
-                      { key: 'cash', label: 'Cash', color: 'emerald', Icon: Banknote },
-                      { key: 'option', label: 'Options', color: 'rose', Icon: Target },
-                    ].map(({ key, label, color, Icon }) => {
+                    {(() => {
+                      const PIE_COLORS = ['#3b82f6', '#a855f7', '#f97316', '#14b8a6', '#10b981', '#f43f5e', '#eab308', '#6366f1', '#ec4899', '#06b6d4']
+                      return [
+                        { key: 'stock', label: 'Stocks', color: 'blue', Icon: TrendingUp },
+                        { key: 'etf', label: 'ETFs', color: 'purple', Icon: PieChart },
+                        { key: 'crypto', label: 'Crypto', color: 'orange', Icon: DollarSign },
+                        { key: 'custom', label: 'Miscellaneous', color: 'teal', Icon: Wallet },
+                        { key: 'cash', label: 'Cash', color: 'emerald', Icon: Banknote },
+                        { key: 'option', label: 'Options', color: 'rose', Icon: Target },
+                      ].map(({ key, label, color, Icon }) => {
                       const typeData = periodData.byAssetType?.[key]
                       if (!typeData || (typeData.previousValue === 0 && typeData.currentValue === 0)) {
                         return null
                       }
 
+                      const holdings = groupedHoldings[key] || []
+                      const useName = key === 'cash' || key === 'custom'
+                      const pieData = Object.values(holdings
+                        .filter((h) => (h.currentValue || h.quantity * h.costBasis) > 0)
+                        .reduce((acc, h) => {
+                          const name = useName ? (h.accountName || h.ticker) : h.ticker
+                          const value = h.currentValue || h.quantity * h.costBasis
+                          acc[name] = acc[name] ? { name, value: acc[name].value + value } : { name, value }
+                          return acc
+                        }, {}))
+                        .sort((a, b) => b.value - a.value)
+                      const pieTotal = pieData.reduce((sum, d) => sum + d.value, 0)
+
                       return (
                         <div
                           key={key}
-                          className={`bg-slate-900/50 rounded-lg p-4 border border-${color}-500/20`}
+                          className={`bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 ${pieData.length > 0 ? 'cursor-pointer hover:border-slate-600 transition-colors' : ''}`}
+                          onClick={pieData.length > 0 ? () => setShowAssetBreakdown((prev) => !prev) : undefined}
                         >
                           <div className="flex items-center gap-2 mb-2">
                             <Icon className={`w-4 h-4 text-${color}-400`} />
                             <span className={`text-sm font-medium text-${color}-400`}>
                               {label}
                             </span>
+                            {pieData.length > 0 && (
+                              <span
+                                className={`ml-auto text-xs px-2 py-0.5 rounded-full border transition-all ${
+                                  showAssetBreakdown
+                                    ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                                    : 'bg-transparent border-slate-600 text-slate-400'
+                                }`}
+                              >
+                                {showAssetBreakdown ? 'Hide' : 'Breakdown'}
+                              </span>
+                            )}
                           </div>
                           <div className={`text-xl font-bold ${getGainLossColor(typeData.change)}`}>
                             {formatPercent(typeData.changePercent)}
@@ -1011,9 +1099,57 @@ export default function Portfolio() {
                           <div className="text-xs text-slate-500 mt-1">
                             {formatCurrency(typeData.previousValue)} &rarr; {formatCurrency(typeData.currentValue)}
                           </div>
+                          {showAssetBreakdown && pieData.length > 0 && (
+                            <div
+                              className="mt-3 pt-3 border-t border-slate-700/50 cursor-pointer group"
+                              onClick={() => setPieModalType(key)}
+                              title="Click to expand"
+                            >
+                              <div className="text-[10px] text-slate-500 text-center mb-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to expand</div>
+                              <ResponsiveContainer width="100%" height={200}>
+                                <RechartsPieChart>
+                                  <Pie
+                                    data={pieData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={40}
+                                    outerRadius={75}
+                                    paddingAngle={2}
+                                    dataKey="value"
+                                    label={({ name, percent }) =>
+                                      `${name} ${(percent * 100).toFixed(0)}%`
+                                    }
+                                    labelLine={false}
+                                  >
+                                    {pieData.map((entry, index) => (
+                                      <Cell
+                                        key={`cell-${entry.name}`}
+                                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                                      />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    content={({ active, payload }) => {
+                                      if (!active || !payload?.length) return null
+                                      const d = payload[0].payload
+                                      return (
+                                        <div className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 shadow-lg">
+                                          <div className="text-sm font-medium text-white">{d.name}</div>
+                                          <div className="text-xs text-slate-300">
+                                            {formatCurrency(d.value)} &middot; {pieTotal > 0 ? ((d.value / pieTotal) * 100).toFixed(1) : 0}%
+                                          </div>
+                                        </div>
+                                      )
+                                    }}
+                                  />
+                                </RechartsPieChart>
+                              </ResponsiveContainer>
+                            </div>
+                          )}
                         </div>
                       )
-                    })}
+                    })
+                    })()}
                   </div>
                 </div>
               </div>
@@ -1463,10 +1599,10 @@ export default function Portfolio() {
                       <tr
                         key={holding.id}
                         onClick={() =>
-                          !['crypto', 'custom', 'cash', 'option'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
+                          !['crypto', 'custom', 'cash', 'option', 'etf'].includes(assetType) && navigate(`/analysis/${holding.ticker}`)
                         }
                         className={`${
-                          !['crypto', 'custom', 'cash', 'option'].includes(assetType)
+                          !['crypto', 'custom', 'cash', 'option', 'etf'].includes(assetType)
                             ? 'hover:bg-slate-700/30 cursor-pointer'
                             : ''
                         } transition-colors`}
@@ -1991,6 +2127,112 @@ export default function Portfolio() {
           </div>
         </div>
       )}
+      {/* Pie Chart Expanded Modal */}
+      {pieModalType && (() => {
+        const ASSET_TYPE_META = {
+          stock: { label: 'Stocks', color: 'blue' },
+          etf: { label: 'ETFs', color: 'purple' },
+          crypto: { label: 'Crypto', color: 'orange' },
+          custom: { label: 'Miscellaneous', color: 'teal' },
+          cash: { label: 'Cash', color: 'emerald' },
+          option: { label: 'Options', color: 'rose' },
+        }
+        const PIE_COLORS = ['#3b82f6', '#a855f7', '#f97316', '#14b8a6', '#10b981', '#f43f5e', '#eab308', '#6366f1', '#ec4899', '#06b6d4']
+        const meta = ASSET_TYPE_META[pieModalType] || { label: pieModalType, color: 'slate' }
+        const holdings = groupedHoldings[pieModalType] || []
+        const useName = pieModalType === 'cash' || pieModalType === 'custom'
+        const modalPieData = Object.values(holdings
+          .filter((h) => (h.currentValue || h.quantity * h.costBasis) > 0)
+          .reduce((acc, h) => {
+            const name = useName ? (h.accountName || h.ticker) : h.ticker
+            const value = h.currentValue || h.quantity * h.costBasis
+            acc[name] = acc[name] ? { name, value: acc[name].value + value } : { name, value }
+            return acc
+          }, {}))
+          .sort((a, b) => b.value - a.value)
+        const modalTotal = modalPieData.reduce((sum, d) => sum + d.value, 0)
+
+        return (
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setPieModalType(null)}
+          >
+            <div
+              className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-5 border-b border-slate-700">
+                <h3 className={`text-lg font-semibold text-${meta.color}-400`}>
+                  {meta.label} Breakdown
+                </h3>
+                <button
+                  onClick={() => setPieModalType(null)}
+                  className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              <div className="p-5">
+                <ResponsiveContainer width="100%" height={320}>
+                  <RechartsPieChart>
+                    <Pie
+                      data={modalPieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={120}
+                      paddingAngle={2}
+                      dataKey="value"
+                      label={({ name, percent }) =>
+                        `${name} ${(percent * 100).toFixed(0)}%`
+                      }
+                      labelLine={false}
+                    >
+                      {modalPieData.map((entry, index) => (
+                        <Cell
+                          key={`modal-cell-${entry.name}`}
+                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null
+                        const d = payload[0].payload
+                        return (
+                          <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 shadow-lg">
+                            <div className="text-sm font-medium text-white">{d.name}</div>
+                            <div className="text-xs text-slate-300">
+                              {formatCurrency(d.value)} &middot; {modalTotal > 0 ? ((d.value / modalTotal) * 100).toFixed(1) : 0}%
+                            </div>
+                          </div>
+                        )
+                      }}
+                    />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+
+                {/* Legend table */}
+                <div className="mt-4 space-y-1.5">
+                  {modalPieData.map((entry, index) => (
+                    <div key={entry.name} className="flex items-center gap-3 text-sm">
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
+                      />
+                      <span className="text-slate-300 flex-1">{entry.name}</span>
+                      <span className="text-slate-400 tabular-nums">{formatCurrency(entry.value)}</span>
+                      <span className="text-slate-500 tabular-nums w-14 text-right">
+                        {modalTotal > 0 ? ((entry.value / modalTotal) * 100).toFixed(1) : 0}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
