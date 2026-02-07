@@ -14,6 +14,7 @@ import {
   Plus,
   X,
   Briefcase,
+  Calendar,
 } from 'lucide-react'
 import { watchlistApi, portfolioApi } from '../services/api'
 
@@ -266,13 +267,25 @@ export default function Watchlist() {
         </span>
       </td>
 
-      {/* Added date */}
-      <td className="px-4 py-4 text-right text-sm text-slate-400">
-        {item.addedAt ? new Date(item.addedAt).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }) : 'N/A'}
+      {/* Next Earnings */}
+      <td className="px-4 py-4 text-right text-sm">
+        {item.nextEarningsDate ? (() => {
+          const daysUntil = Math.ceil((new Date(item.nextEarningsDate + 'T00:00:00') - new Date()) / (1000 * 60 * 60 * 24))
+          const dateLabel = new Date(item.nextEarningsDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          return (
+            <div className="flex items-center justify-end gap-1.5">
+              <Calendar className="w-3 h-3 text-slate-500" />
+              <span className={daysUntil <= 7 ? 'text-amber-400 font-medium' : 'text-slate-300'}>
+                {dateLabel}
+              </span>
+              <span className={`text-xs ${daysUntil <= 7 ? 'text-amber-400/70' : 'text-slate-500'}`}>
+                ({daysUntil}d)
+              </span>
+            </div>
+          )
+        })() : (
+          <span className="text-slate-600">-</span>
+        )}
       </td>
 
       {/* Actions */}
@@ -427,7 +440,7 @@ export default function Watchlist() {
                         <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">1D</th>
                         <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">1M</th>
                         <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">1Y</th>
-                        <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">Added</th>
+                        <th className="px-4 py-3 text-slate-400 font-medium text-sm text-right">Earnings</th>
                         <th className="px-4 py-3"></th>
                       </tr>
                     </thead>
@@ -453,7 +466,7 @@ export default function Watchlist() {
                 <th className="px-4 py-4 text-slate-400 font-medium text-right">1D</th>
                 <th className="px-4 py-4 text-slate-400 font-medium text-right">1M</th>
                 <th className="px-4 py-4 text-slate-400 font-medium text-right">1Y</th>
-                <th className="px-4 py-4 text-slate-400 font-medium text-right">Added</th>
+                <th className="px-4 py-4 text-slate-400 font-medium text-right">Earnings</th>
                 <th className="px-4 py-4"></th>
               </tr>
             </thead>

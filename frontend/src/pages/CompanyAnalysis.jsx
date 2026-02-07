@@ -17,6 +17,7 @@ import {
   History,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   ExternalLink,
   Building2,
   Banknote,
@@ -284,6 +285,7 @@ export default function CompanyAnalysis() {
 
   // Expanded sections
   const [activeSection, setActiveSection] = useState('price') // Chart open by default
+  const [showChart, setShowChart] = useState(true)
   const [sectionData, setSectionData] = useState({})
   const [sectionLoading, setSectionLoading] = useState({})
 
@@ -675,34 +677,39 @@ export default function CompanyAnalysis() {
             </span>
           </div>
         )}
-        <button
-          onClick={() => loadSection('price')}
-          disabled={sectionLoading.price}
-          className={`rounded-lg px-4 py-2 flex items-center gap-2 transition-all ${
-            activeSection === 'price'
-              ? 'bg-gradient-to-r from-blue-500/20 to-blue-500/5 border border-blue-500/30 text-blue-400'
-              : 'bg-slate-800/50 border border-slate-700 text-slate-300 hover:border-slate-600 hover:bg-slate-700'
-          } ${sectionLoading.price ? 'opacity-50 cursor-wait' : ''}`}
-        >
-          {sectionLoading.price ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <TrendingUp className="w-3 h-3" />
-          )}
-          <span>Chart</span>
-        </button>
       </div>
 
-      {/* Price Chart - Expanded below Quick Stats */}
-      {activeSection === 'price' && sectionData.price && (
-        <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-          <PriceChart
-            key={`${chartPeriod}-${sectionData.price?.length}`}
-            data={sectionData.price}
-            period={chartPeriod}
-            onPeriodChange={handlePeriodChange}
-            loading={sectionLoading.price}
-          />
+      {/* Price Chart - Collapsible */}
+      {sectionData.price && (
+        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+          <div
+            className="px-6 py-4 cursor-pointer hover:bg-slate-700/30 transition-colors"
+            onClick={() => setShowChart((prev) => !prev)}
+          >
+            <div className="flex items-center gap-3">
+              {showChart ? (
+                <ChevronDown className="w-5 h-5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-slate-400" />
+              )}
+              <TrendingUp className="w-5 h-5 text-blue-500" />
+              <h2 className="text-lg font-semibold">Chart</h2>
+              {sectionLoading.price && (
+                <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+              )}
+            </div>
+          </div>
+          {showChart && (
+            <div className="px-6 pb-6">
+              <PriceChart
+                key={`${chartPeriod}-${sectionData.price?.length}`}
+                data={sectionData.price}
+                period={chartPeriod}
+                onPeriodChange={handlePeriodChange}
+                loading={sectionLoading.price}
+              />
+            </div>
+          )}
         </div>
       )}
 

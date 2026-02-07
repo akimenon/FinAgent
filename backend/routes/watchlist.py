@@ -12,6 +12,7 @@ import asyncio
 from services.watchlist_service import watchlist_service
 from services.fmp_cache import fmp_cache
 from utils import safe_float, find_price_near_date
+from routes.portfolio import _extract_next_earnings_date
 
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -45,7 +46,12 @@ async def get_watchlist(include_prices: bool = True):
     async def fetch_stock_data(item):
         symbol = item["symbol"]
         try:
-            profile = await fmp_cache.get("profile", symbol)
+            profile_task = fmp_cache.get("profile", symbol)
+            earnings_cal_task = fmp_cache.get("earnings_calendar", symbol)
+            earnings_hist_task = fmp_cache.get("earnings", symbol)
+            profile, earnings_cal, earnings_hist = await asyncio.gather(
+                profile_task, earnings_cal_task, earnings_hist_task
+            )
             if not profile:
                 return {
                     **item,
@@ -56,11 +62,14 @@ async def get_watchlist(include_prices: bool = True):
                     "changePercent": None,
                     "momChangePercent": None,
                     "yoyChangePercent": None,
+                    "nextEarningsDate": None,
                     "error": "Profile not found"
                 }
 
             # Calculate MoM and YoY changes
             price_changes = await _calculate_price_changes(symbol)
+
+            next_earnings_date = _extract_next_earnings_date(earnings_cal, earnings_hist)
 
             return {
                 **item,
@@ -73,6 +82,7 @@ async def get_watchlist(include_prices: bool = True):
                 "changePercent": profile.get("changePercentage"),
                 "momChangePercent": price_changes.get("momChangePercent"),
                 "yoyChangePercent": price_changes.get("yoyChangePercent"),
+                "nextEarningsDate": next_earnings_date,
             }
         except Exception as e:
             return {
